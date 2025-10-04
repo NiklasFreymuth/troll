@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Meta tags for social media banners, these should be filled in appropriatly as they are your "business card" -->
+  <!-- Replace the content tag with appropriate information -->
+  <meta name="description" content="Replacing the PPO-like Clip objective with principled trust regions improves Large Language Models in Reinforcement Learning from Verifyable Reward settings.">
+  <meta property="og:title" content="TROLL: Trust Regions improve Reinforcement Learning for Large Language Models"/>
+  <meta property="og:description" content="A principled trust region approach to replace PPO-style clipping for more stable and effective reinforcement learning fine-tuning of large language models."/>
+  <meta property="og:url" content="https://niklasfreymuth.github.io/TROLL/"/>
+  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X630-->
+  <meta property="og:image" content="static/images/troll_illustration.png" />
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="620"/>
+
+
+  <meta name="twitter:title" content="TROLL: Trust Regions improve Reinforcement Learning for Large Language Models">
+  <meta name="twitter:description" content="A principled trust region approach to replace PPO-style clipping for more stable and effective reinforcement learning fine-tuning of large language models.">
+  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X600-->
+  <meta name="twitter:image" content="static/images/troll_illustration.png">
+  <meta name="twitter:card" content="Trust region projection for LLM fine-tuning">
+  <!-- Keywords for your paper to be indexed by-->
+  <meta name="keywords" content="Large Language Models, Reinforcement Learning from Verifyable Rewards, Trust Regions">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+  <title>TROLL: Trust Regions improve Reinforcement Learning for Large Language Models</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧌</text></svg>">
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+  rel="stylesheet">
+
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src="https://documentcloud.adobe.com/view-sdk/main.js"></script>
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script src="static/js/bulma-carousel.min.js"></script>
+  <script src="static/js/bulma-slider.min.js"></script>
+  <script src="static/js/index.js"></script>
+  <style>
+  /* Target images inside the carousel to increase distance to caption (like a positive v-space!) */
+  .results-carousel .item img {
+    margin-bottom: 20px;
+  }
+  </style>
+<script>
+  window.MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']]
+    },
+    svg: {
+      fontCache: 'global'
+    }
+  };
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+
+
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-1 publication-title">TROLL: Trust Regions improve Reinforcement Learning for Large Language Models</h1>
+            <div class="is-size-5 publication-authors">
+              <!-- Paper authors -->
+              <span class="author-block">
+                Philipp Becker<sup>1*</sup>,</span>
+              <span class="author-block">
+                Niklas Freymuth<sup>1*</sup>,</span>
+              <span class="author-block">
+                Serge Thilges<sup>1</sup>,</span>
+              <span class="author-block">
+                Fabian Otto<sup>2</sup>,</span>
+              <span class="author-block">
+                Gerhard Neumann<sup>1</sup></span>
+            </div>
+            <br>
+            <div class="is-size-6 publication-authors">
+              <span class="author-block"><sup>1</sup>Karlsruhe Institute of Technology</span>
+            <br>
+              <span class="author-block"><sup>2</sup>Microsoft Research</span>
+            <br>
+              <span class="author-block"><sup>*</sup>Equal contribution. Author order was decided by a fair coin flip.</span>
+            </div>
+
+                  <div class="column has-text-centered">
+                    <div class="publication-links">
+                  <!-- Github link -->
+                  <span class="link-block">
+                    <a href="https://github.com/niklasfreymuth/TROLL" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon">
+                      <i class="fab fa-github"></i>
+                    </span>
+                    <span>Code on Github</span>
+                  </a>
+                </span>
+
+                <!-- ArXiv abstract Link -->
+                <span class="link-block">
+                  <a href="#" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                    <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>Paper on arXiv</span>
+                </a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<!-- Schematic-->
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body">
+      <div class="columns is-centered">
+        <div class="column is-half">
+          <img src="static/images/troll_illustration_no_bg.png" alt="TROLL pushing a Llama back into a trust region" style="height: min(300px, 40vh); width: auto; object-fit: contain;"/>
+        </div>
+        <div class="column is-half">
+          <img src="static/images/trust_region_schematic.png" alt="Schematic overview of a discrete trust region bound." style="height: min(300px, 40vh); width: auto; object-fit: contain;"/>
+        </div>
+      </div>
+      <h2 class="subtitle has-text-centered">
+        TROLL replaces PPO-style clipping with principled trust region projections for LLM fine-tuning. <br>
+        <b>Left:</b> TROLL makes sure the Llama stays inside its trust region. <br>
+        <b>Right:</b> Example of a 3-token distribution where the old policy favors the 🧌 token, the new policy shifts toward the 🐹 token, and the trust region projection ensures stable updates.
+      </h2>
+    </div>
+  </div>
+</section>
+<!-- End Schematic -->
+
+<!-- Paper abstract -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            On-policy Reinforcement Learning (RL) with PPO-like clip objectives has become the standard choice for reward-based fine-tuning of large language models (LLMs). Although recent work has explored improved estimators of advantages and normalization, the clipping mechanism itself has remained untouched. Originally introduced as a proxy for principled KL-based trust regions, clipping is a crude approximation that often causes unstable updates and suboptimal performance.
+            We replace the clip objective with a novel discrete differentiable trust region projection, which provides principled token-level KL constraints. The projection operates on a sparse subset of the model's most important token logits to balance computational cost and projection effectiveness. Our approach, Trust Region Optimization for Large Language Models (TROLL), serves as a direct replacement for PPO-like clipping during training and does not alter the model's inference behavior.
+            Across datasets, model families, and advantage-estimation methods, TROLL consistently outperforms PPO-like clipping in terms of training speed, stability, and final success rates.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End paper abstract -->
+
+
+<!-- Method Section -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Method</h2>
+        <div class="content has-text-justified">
+          <p>
+            PPO and many of its variants, such as GRPO, Dr.GRPO and GSPO, rely on heuristic clipping of importance ratios to stabilize policy updates.
+            Since this clipping is a crude approximation of full trust regions, it often leads to unstable training and suboptimal performance.
+            Trust Region Optimization for Large Language Models (TROLL) instead acts as a drop-in replacement for the PPO-like clip objective that uses principled trust regions via KL constraints between token distributions.
+          </p>
+          
+          <h3 class="title is-4">The Problem with PPO Clipping</h3>
+            <p>
+          PPO and its many derivatives control policy update steps by clipping the importance ratio $r_t = \frac{\tilde{\pi}(o_t | q, o_{&lt;t})}{\pi^{\text{old}}(o_t | q, o_{&lt;t})}$ between current and old policy around $1$, i.e., 
+        </p>
+        <p>
+          $$J_{\text{PPO}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \min(r_t A_t, \text{clip}(r_t, 1-\epsilon_{\text{PPO}}, 1+\epsilon_{\text{PPO}}) A_t) \right].$$
+        </p>
+        <p>
+          This clipping makes training more stable but truncates gradients, pushes the policy to be overly cautious, and still allows arbitrarily large KL divergences, causing stability and convergence issues.
+            Standard PPO keeps policies close by clipping the importance ratio $r_t = \frac{\tilde{\pi}(o_t | q, o_{&lt;t})}{\pi^{\text{old}}(o_t | q, o_{&lt;t})}$ around 1:
+          </p>
+          <p>
+            $$J_{\text{PPO}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \min(r_t A_t, \text{clip}(r_t, 1-\epsilon_{\text{PPO}}, 1+\epsilon_{\text{PPO}}) A_t) \right]$$
+          </p>
+          <p>
+            This heuristic clipping suppresses gradients when ratios exceed the threshold, discarding valuable gradient information and leading to unstable learning.
+          </p>
+
+          <h3 class="title is-4">TROLL's Differentiable Trust Region Projection</h3>
+          <p>
+            TROLL projects each token's output distribution onto a KL-trust region around the old policy:
+          </p>
+          <p>
+            $$\arg\min_{\pi(o_t | q, o_{&lt;t})} \text{KL}(\pi(o_t | q, o_{&lt;t}) \| \tilde{\pi}(o_t | q, o_{&lt;t}))$$
+          </p>
+          <p>
+            subject to $\text{KL}(\pi(o_t | q, o_{&lt;t}) \| \pi^{\text{old}}(o_t | q, o_{&lt;t})) \leq \epsilon$.
+            Here, $\tilde{\pi}$ is the unprojected new policy, $\pi^{\text{old}}$ is the old policy, and $\epsilon$ is the trust region bound. The solution is a geometric interpolation
+          </p>
+          <p>
+            $$\pi(o_t | q, o_{&lt;t}) \propto \exp\left(\frac{\eta^* \log \pi^{\text{old}}(o_t | q, o_{&lt;t}) + \tilde{\pi}(o_t | q, o_{&lt;t})}{\eta^* + 1}\right)$$
+          </p>
+          <p>
+            between old and new policy logits, which uses $\eta^*$ as a step size. 
+            The optimal $\eta^*$ is found by solving a one-dimensional convex dual problem, which can be fully parallelized and solved with bracketing.
+          </p>
+
+          <h3 class="title is-4">The TROLL Objective</h3>
+          <p>
+            TROLL acts on the <b>projected policy</b> and combines its update with a regression term to this projection, i.e., 
+          </p>
+          <p>
+            $$J_{\text{TROLL}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \frac{\pi(o_t | q, o_{&lt;t})}{\pi^{\text{old}}(o_t | q, o_{&lt;t})} A_t \right] - \alpha \text{KL}(\tilde{\pi}(o_t | q, o_{&lt;t}) \|  \lfloor \pi(o_t | q, o_{&lt;t})\rfloor ) $$
+          </p>
+          <p>
+            This approach is fully differentiable and has closed-form gradients through the projection.
+            Unlike clipping, it preserves gradients and mathematically ensures a fixed KL bound between the old and new policy.
+          </p>
+
+          <h3 class="title is-4">Scaling TROLL with Sparsity</h3>
+          <p>
+            LLM tokenizers have vocabularies with tens of thousands of tokens, which are too expensive to directly store and project.
+            However, natural language follows a power-law, where a few tokens take up most of the probability mass.
+            We keep only the highest probability tokens up to either $K$ tokens or a cumulative mass of $1-\delta$. 
+            With $K=64$ and $\delta=10^{-5}$, $5{-}10$ tokens typically suffice to cover $99.999\%$ of probability mass.
+            This greedy selection accurately approximates the full distribution, and makes TROLL computationally feasible for arbitrary vocabulary sizes.
+          </p>
+
+          <div class="has-text-centered">
+            <img src="static/images/troll_overview.png" alt="TROLL sparsification and trust region projection schematic" style="max-width: 100%; height: auto;"/>
+            <p class="is-size-6 has-text-grey">
+              Schematic overview of TROLL. The token-wise logit distribution is sparsified for both old and new policies. The new policy's distribution is then projected onto a trust region of the old.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Method Section -->
+
+
+<!-- Experimental results  -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container">
+      <h2 class="title is-3">Results</h2>
+      <div id="results-carousel" class="carousel results-carousel">
+       <div class="item">
+        <!-- Your image here -->
+        <img src="static/images/qwen3_size.png" alt="Troll and Clip with GRPO on different Qwen3 models"/>
+        <h2 class="subtitle has-text-centered">
+          <strong>$3{-}10\%$ absolute improvements across different Qwen3 model sizes.</strong><br>
+          <i>TROLL</i> consistently outperforms <i>Clip</i> on Qwen3 models (600M-14B) for DAPO-Math when trained with GRPO. 
+          The 4B TROLL model nearly matches the 14B clipped model's performance.
+        </h2>
+      </div>
+      <div class="item">
+        <!-- Your image here -->
+        <img src="static/images/qwen3_methods.png" alt="Cross-algorithm performance comparison"/>
+        <h2 class="subtitle has-text-centered">
+          <strong>Drop-in replacement for different on-policy methods.</strong><br>
+          <i>TROLL</i> improves GRPO, Dr.GRPO, PPO, and GSPO performance, here for Qwen3-$8$B. 
+          Most dramatically, GSPO (<i>Clip</i>) fails completely, while GSPO (<i>TROLL</i>) achieves $70\%{+}$ success rates.
+        </h2>
+      </div>
+      <div class="item">
+        <!-- Your image here -->
+        <img src="static/images/other_models.png" alt="Model family generalization"/>
+        <h2 class="subtitle has-text-centered">
+          <strong>Works across model families and datasets.</strong><br>
+          <i>TROLL</i> improves different Qwen, Llama, SmolLM and Apertus models and outperforms <i>Clip</i> on GSM8K, DAPO-Math, and Eurus-2-RL-Math.
+        </h2>
+      </div>
+      <div class="item">
+        <!-- Your image here -->
+        <img src="static/images/analysis.png" alt="Training stability and computational overhead"/>
+        <h2 class="subtitle has-text-centered">
+          <strong>Better training stability with low overhead.</strong><br>
+          <i>TROLL</i> works well for a range of hyperparameters and preserves policy entropy compared to <i>Clip</i>. 
+          It comes with a manageable overhead that is constant in model size.
+        </h2>
+      </div>
+  </div>
+</div>
+</div>
+</section>
+<!-- End quantitative results -->
+
+<!-- Technical Insights -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Key Insights</h2>
+        <div class="content has-text-justified">
+          <h3 class="title is-4">Why TROLL Works</h3>
+          <p>
+            Compared to the PPO-like <i>Clip</i>, <i>TROLL</i> provides a drop-in replacement that
+            <ul>
+              <li><strong>Preserves gradients</strong>, even through constrained updates.</li>
+              <li><strong>Provides principled constraints</strong> that use actual KL divergence rather than heuristic ratio clipping</li>
+              <!-- <li><strong>Maintains entropy:</strong> Prevents the policy from collapsing to greedy, low-diversity outputs</li>
+              <li><strong>Works across algorithms:</strong> Drop-in replacement for any PPO-style method (GRPO, Dr.GRPO, GSPO, etc.)</li> -->
+            </ul>
+          </p>
+          <p>
+            The result is more stable training, faster convergence, and better final performance on various model families, RL algorithms and verifyable math datasets.
+          </p>
+
+          <h3 class="title is-4">Practical Considerations</h3>
+          <p>
+            <strong>Sparsification:</strong> On average, $5{-}10$ tokens cover $99.999$% of probability mass. This property allows sparsification, which vastly reduces computational cost while staying close to the true token distributions.
+          </p>
+          <p>
+            <strong>Hyperparameters:</strong> TROLL uses the same hyperparameters for all experiments.
+            We set $K{=}64$ maximum sparse tokens, $\delta{=}1e{-}5$ for the mass threshold, $\epsilon{=}0.05$ for the KL bound, and $\alpha{=}1$ for the regression weight.
+            TROLL is robust to all its hyperparameters.
+          </p>
+          <p>
+            <strong>Computational cost:</strong> TROLL has ${\sim}5\%$ memory and ${\sim}10\%$ runtime overhead on $4$B models, with overhead decreasing relatively as models grow larger.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Technical Insights -->
+
+
+
+<!--BibTex citation -->
+  <section class="section" id="BibTeX">
+    <div class="container is-max-desktop content">
+      <h2 class="title">BibTeX</h2>
+      <pre><code>
+        @article{becker2025troll,
+          title={TROLL: Trust Regions improve Reinforcement Learning for Large Language Models},
+          author={Becker, Philipp and Freymuth, Niklas and Thilges, Serge and Otto, Fabian and Neumann, Gerhard},
+          journal={arXiv preprint},
+          year={2025}
+        }
+      </code></pre>
+    </div>
+</section>
+<!--End BibTex citation -->
+
+
+  <footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+
+          <p>
+            This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a> which was adopted from the <a href="https://nerfies.github.io" target="_blank">Nerfies</a> project page.
+            You are free to borrow the source code of this website, we just ask that you link back to this page in the footer. <br> This website is licensed under a <a rel="license"  href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+  </body>
+  </html>
