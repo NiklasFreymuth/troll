@@ -131,8 +131,7 @@ def call_sandbox_api(
             # Check for Gateway Timeout (504) specifically for retrying
             if response.status_code == 504:
                 last_error = (
-                    f"{log_prefix}API Request Error: Gateway Timeout (504) on attempt "
-                    f"{attempt + 1}/{MAX_RETRIES}"
+                    f"{log_prefix}API Request Error: Gateway Timeout (504) on attempt " f"{attempt + 1}/{MAX_RETRIES}"
                 )  # <-- Use internal log_prefix
                 logger.warning(last_error)
                 if attempt < MAX_RETRIES - 1:  # Don't sleep after the last attempt
@@ -148,9 +147,7 @@ def call_sandbox_api(
             response.raise_for_status()
 
             # If successful (status code 2xx)
-            logger.info(
-                f"{log_prefix}Sandbox API call successful on attempt {attempt + 1}"
-            )  # <-- Use internal log_prefix
+            logger.info(f"{log_prefix}Sandbox API call successful on attempt {attempt + 1}")  # <-- Use internal log_prefix
             return response.json(), None
 
         except requests.exceptions.RequestException as e:
@@ -450,6 +447,7 @@ def check_correctness(
     sandbox_fusion_url: str,
     in_outs: Optional[dict],
     generation: str,
+    max_cases: int = 10,
     timeout: int = DEFAULT_TIMEOUT,
     memory_limit_mb: int = 1024,
     language: str = "python",
@@ -485,6 +483,13 @@ def check_correctness(
     fn_name = in_outs.get("fn_name")
     num_cases = len(inputs)
     assert_cases = in_outs.get("assert_case", [""] * num_cases)  # Default to empty strings if not provided
+    # take only the first max_cases to limit eval overhead. Can't be a random subsample as it has to be
+    # consistent across different responses (e.g. GRPO) to the same task
+    num_cases = min(num_cases, max_cases)
+    inputs = inputs[:max_cases]
+    expected_outputs = expected_outputs[:max_cases]
+    assert_cases = assert_cases[:max_cases]
+
     results = [None] * num_cases  # Initialize with placeholders
     metadata_list = [None] * num_cases  # Initialize with placeholders
 
@@ -555,9 +560,7 @@ def check_correctness(
 
     # Post-processing for compile errors
     if first_compile_error_index != -1:
-        logger.warning(
-            f"Compile error detected in case {first_compile_error_index}. Marking subsequent cases as compile errors."
-        )
+        logger.warning(f"Compile error detected in case {first_compile_error_index}. Marking subsequent cases as compile errors.")
         for i in range(first_compile_error_index + 1, num_cases):
             # Only update if not already processed (though it should be None or have a result)
             if results[i] != -4:  # Avoid overwriting if it somehow already got -4
