@@ -17,6 +17,7 @@ import heapq
 from itertools import chain
 
 import torch
+from tensordict import TensorDict  # use tensordicts for balancing the sparse logits
 from torch import distributed as dist
 
 from verl.protocol import DataProto
@@ -258,6 +259,90 @@ def roundup_divisible(a, b):
     return ((a + b - 1) // b) * b
 
 
+
+def _select_sparse_tensor_indices(tensor: torch.Tensor, selected_indices: list[int]) -> torch.Tensor:
+    """
+    Select specific batch indices from a sparse COO tensor efficiently using vectorized operations.
+
+    Args:
+        tensor (torch.Tensor): Input sparse COO tensor with shape (batch_size, ...)
+        selected_indices (list[int]): List of batch indices to select
+
+    Returns:
+        torch.Tensor: New sparse COO tensor containing only the selected batch indices,
+                     reordered according to selected_indices
+    """
+    if not tensor.is_sparse:
+        raise ValueError("Input tensor must be sparse")
+
+    # Ensure tensor is coalesced before accessing indices
+    if not tensor.is_coalesced():
+        tensor = tensor.coalesce()
+
+    # Get tensor properties
+    tensor_indices = tensor.indices()
+    tensor_values = tensor.values()
+    tensor_shape = tensor.shape
+
+    if tensor_indices.numel() == 0:
+        # Handle empty sparse tensor
+        new_shape = (len(selected_indices),) + tensor_shape[1:]
+        return torch.sparse_coo_tensor(
+            torch.zeros((len(tensor_shape), 0), dtype=torch.long, device=tensor.device),
+            torch.zeros(0, dtype=tensor_values.dtype, device=tensor.device),
+            new_shape,
+            device=tensor.device,
+        ).coalesce()
+
+    # Create mapping from old batch indices to new positions
+    batch_indices = tensor_indices[0]  # First dimension is batch
+
+    # Convert selected_indices to tensor for vectorized operations
+    selected_tensor = torch.tensor(selected_indices, dtype=torch.long, device=tensor.device)
+
+    # Find which entries in the sparse tensor correspond to selected batch indices
+    # Use broadcasting to create a boolean mask
+
+    # Old memory-intensive route
+    # selected_mask = batch_indices.unsqueeze(1) == selected_tensor.unsqueeze(0)  # (nnz, len(selected_indices))
+    # batch_found, new_batch_indices = selected_mask.max(dim=1)  # Find which selected index each entry maps to
+
+    # Filter to only entries that were found in selected_indices
+    # valid_entries = batch_found
+
+    # alternative route, avoids large intermediate selected_mask tensor
+    # Creating a mapping from old batch indices to new batch positions, -1 if not selected
+    index_map = torch.full((tensor_shape[0],), -1, dtype=torch.long, device=tensor.device)
+    index_map[selected_tensor] = torch.arange(len(selected_indices), dtype=torch.long, device=tensor.device)
+    # Map each nnz entry's batch index to its new batch position
+    new_batch_indices = index_map[batch_indices]  # shape: (nnz,), -1's are dropped, so this automatically filters
+    valid_entries = new_batch_indices >= 0
+
+    if not valid_entries.any():
+        # No entries found for selected indices - return empty sparse tensor
+        new_shape = (len(selected_indices),) + tensor_shape[1:]
+        return torch.sparse_coo_tensor(
+            torch.zeros((len(tensor_shape), 0), dtype=torch.long, device=tensor.device),
+            torch.zeros(0, dtype=tensor_values.dtype, device=tensor.device),
+            new_shape,
+            device=tensor.device,
+        ).coalesce()
+
+    # Select the valid entries
+    valid_new_batch_indices = new_batch_indices[valid_entries]
+    valid_other_indices = tensor_indices[1:, valid_entries]  # All dimensions except batch
+    valid_values = tensor_values[valid_entries]
+
+    # Construct new indices tensor
+    new_indices = torch.cat([valid_new_batch_indices.unsqueeze(0), valid_other_indices], dim=0)  # New batch indices  # Other dimensions unchanged
+
+    # Create new sparse tensor with updated shape
+    new_shape = (len(selected_indices),) + tensor_shape[1:]
+
+    return torch.sparse_coo_tensor(new_indices, valid_values, new_shape, device=tensor.device).coalesce()
+
+
+
 def rearrange_micro_batches(
     batch,
     max_token_len,
@@ -327,8 +412,29 @@ def rearrange_micro_batches(
 
     micro_batches = []
 
+    # Check if we have sparse tensors in the batch
+    has_sparse = any(tensor.is_sparse for tensor in batch.values())
+
     for partition in micro_bsz_idx:
-        curr_micro_batch = tu.index_select_tensor_dict(batch, partition)
+        if has_sparse:
+            # Handle sparse tensors manually
+            micro_batch_tensors = {}
+            for key, tensor in batch.items():
+                if tensor.is_sparse:
+                    # Use sparse tensor selection for sparse tensors
+                    micro_batch_tensors[key] = _select_sparse_tensor_indices(tensor, partition)
+                else:
+                    # Use regular indexing for dense tensors
+                    if len(partition) == 1:
+                        micro_batch_tensors[key] = tensor[partition[0] : partition[0] + 1]
+                    else:
+                        selected_tensors = [tensor[idx : idx + 1] for idx in partition]
+                        micro_batch_tensors[key] = torch.cat(selected_tensors, dim=0)
+
+            # Create new TensorDict
+            curr_micro_batch = TensorDict(source=micro_batch_tensors, batch_size=(len(partition),), device=batch.device)
+        else:
+            curr_micro_batch = tu.index_select_tensor_dict(batch, partition)
         micro_batches.append(curr_micro_batch)
 
     return micro_batches, micro_bsz_idx
@@ -407,7 +513,10 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
     assert len(indices) == batch_size, f"{len(indices)} vs. {batch_size}"
     revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
 
-    if data.is_nested:
+    if data.is_sparse:
+        # Handle sparse tensor restoration
+        reverted_data = _select_sparse_tensor_indices(data, revert_indices.tolist())
+    elif data.is_nested:
         tensors = [data[i] for i in revert_indices]
         reverted_data = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
     else:

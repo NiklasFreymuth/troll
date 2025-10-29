@@ -332,6 +332,28 @@ class DataProto:
     It contains a batch (TensorDict) and a meta_info (Dict). The batch is a TensorDict https://pytorch.org/tensordict/.
     TensorDict allows you to manipulate a dictionary of Tensors like a single Tensor. Ideally, the tensors with the
     same batch size should be put inside batch.
+
+    Sparse Tensor Support:
+    ---------------------
+    This class provides comprehensive support for PyTorch sparse COO tensors, which is critical for memory-efficient
+    operations when dealing with very large vocabulary sizes or sparse data patterns. Key features:
+
+    1. **Serialization**: Handles Ray/pickle serialization by skipping operations that don't work with sparse tensors:
+       - Skips contiguous() calls on sparse tensors (not supported)
+       - Conditionally skips consolidate() when sparse tensors are present
+
+    2. **Chunking/Slicing**: Implements manual sparse tensor operations since TensorDict doesn't support them:
+       - Filters indices and values based on batch dimension ranges
+       - Adjusts indices to be relative to chunk/slice boundaries
+       - Creates properly sized empty sparse tensors when no data falls in a range
+
+    3. **Distributed Operations**: Ensures all-gather and other distributed ops work with sparse tensors
+
+    4. **Memory Efficiency**: Preserves the memory benefits of sparse tensors throughout the pipeline
+
+    The implementation transparently handles mixed batches containing both sparse and dense tensors, falling back
+    to original TensorDict operations when only dense tensors are present for optimal performance.
+    
     """
 
     batch: TensorDict = None
@@ -386,8 +408,37 @@ class DataProto:
             raise TypeError(f"Indexing with {type(item)} is not supported")
 
     def __getstate__(self):
+        """
+        Custom serialization for Ray/pickle compatibility.
+
+        Handles sparse tensors by:
+        1. Skipping contiguous() call for sparse tensors (not supported)
+        2. Skipping consolidate() when sparse tensors are present (causes memory format errors)
+
+        Returns:
+            Tuple containing serialized batch, non_tensor_batch, and meta_info
+        """
         if version.parse(tensordict.__version__) >= version.parse("0.5.0") and self.batch is not None:
-            batch = self.batch.contiguous().consolidate()
+            # Process tensors based on their type (sparse vs dense)
+            batch_dict = {}
+            has_sparse_tensors = False
+
+            for key, tensor in self.batch.items():
+                if tensor.is_sparse:
+                    # Skip contiguous() for sparse tensors as they don't support it
+                    batch_dict[key] = tensor
+                    has_sparse_tensors = True
+                else:
+                    # Apply contiguous() to dense tensors for better serialization performance
+                    batch_dict[key] = tensor.contiguous()
+
+            # Create new TensorDict with processed tensors
+            self.batch = TensorDict(batch_dict, batch_size=self.batch.batch_size, device=self.batch.device)
+
+            # Only consolidate if there are no sparse tensors
+            # consolidate() tries to apply contiguous_format to all tensors, which fails for sparse tensors
+            if not has_sparse_tensors:
+                self.batch = self.batch.consolidate()
         else:
             batch = self.batch
 
@@ -444,7 +495,13 @@ class DataProto:
         size_of_tensordict = 0
         if self.batch is not None:
             for _, tensor in self.batch.items():
-                size_of_tensordict += tensor.element_size() * tensor.numel()
+                if tensor.is_sparse:
+                    # For sparse tensors, calculate size based on stored elements
+                    indices_size = tensor.indices().element_size() * tensor.indices().numel()
+                    values_size = tensor.values().element_size() * tensor.values().numel()
+                    size_of_tensordict += indices_size + values_size
+                else:
+                    size_of_tensordict += tensor.element_size() * tensor.numel()
         size_of_numpy_array = 0
         for _, numpy_array in self.non_tensor_batch.items():
             size_of_numpy_array += numpy_array.nbytes
@@ -457,6 +514,108 @@ class DataProto:
         if prefix:
             message = f"{prefix}, " + message
         print(message)
+
+    
+    def _has_sparse_tensors(self) -> bool:
+        """Check if the DataProto contains any sparse tensors."""
+        if self.batch is None:
+            return False
+        return any(tensor.is_sparse for tensor in self.batch.values())
+
+    def _create_empty_sparse_tensor(self, reference_tensor: torch.Tensor, new_batch_size: int) -> torch.Tensor:
+        """Create an empty sparse tensor with the same structure as reference but different batch size."""
+        empty_indices = torch.zeros((reference_tensor.indices().shape[0], 0), dtype=torch.long, device=reference_tensor.device)
+        empty_values = torch.zeros((0,) + reference_tensor.values().shape[1:], dtype=reference_tensor.dtype, device=reference_tensor.device)
+
+        empty_shape = list(reference_tensor.shape)
+        empty_shape[0] = new_batch_size
+
+        return torch.sparse_coo_tensor(
+            empty_indices, empty_values, empty_shape, device=reference_tensor.device, dtype=reference_tensor.dtype
+        ).coalesce()
+
+    def _chunk_sparse_tensor(self, tensor: torch.Tensor, start_idx: int, end_idx: int) -> torch.Tensor:
+        """
+        Chunk a sparse tensor by filtering indices and values that fall within [start_idx, end_idx).
+
+        Args:
+            tensor: The sparse tensor to chunk (must be coalesced)
+            start_idx: Start index (inclusive)
+            end_idx: End index (exclusive)
+
+        Returns:
+            A new sparse tensor containing only elements from the specified range
+        """
+        indices = tensor.indices()
+        values = tensor.values()
+
+        # Find which values belong to this chunk (based on the first dimension)
+        batch_mask = (indices[0] >= start_idx) & (indices[0] < end_idx)
+
+        if batch_mask.any():
+            # Extract indices and values for this chunk
+            chunk_indices = indices[:, batch_mask].clone()
+            chunk_values = values[batch_mask].clone()
+
+            # Adjust indices to be relative to chunk start
+            chunk_indices[0] -= start_idx
+
+            # Create new sparse tensor with adjusted size
+            chunk_shape = list(tensor.shape)
+            chunk_shape[0] = end_idx - start_idx
+
+            return torch.sparse_coo_tensor(chunk_indices, chunk_values, chunk_shape, device=tensor.device, dtype=tensor.dtype).coalesce()
+        else:
+            # Create empty sparse tensor if no values in this chunk
+            return self._create_empty_sparse_tensor(tensor, end_idx - start_idx)
+
+    def _slice_sparse_tensor(self, tensor: torch.Tensor, start_idx: int, end_idx: int, step_size: int) -> torch.Tensor:
+        """
+        Slice a sparse tensor with support for step sizes.
+
+        Args:
+            tensor: The sparse tensor to slice (must be coalesced)
+            start_idx: Start index (inclusive)
+            end_idx: End index (exclusive)
+            step_size: Step size for slicing
+
+        Returns:
+            A new sparse tensor containing only elements from the specified slice
+        """
+        indices = tensor.indices()
+        values = tensor.values()
+
+        # Create mask for indices in the slice range
+        if step_size == 1:
+            # Simple range-based filtering for step=1 (most common case)
+            batch_mask = (indices[0] >= start_idx) & (indices[0] < end_idx)
+        else:
+            # For step > 1, check if index is in the stepped sequence
+            valid_indices = torch.arange(start_idx, end_idx, step_size, device=indices.device)
+            batch_mask = torch.isin(indices[0], valid_indices)
+
+        if batch_mask.any():
+            # Extract indices and values for this slice
+            slice_indices = indices[:, batch_mask].clone()
+            slice_values = values[batch_mask].clone()
+
+            # Adjust indices to be relative to slice start and account for step
+            if step_size == 1:
+                slice_indices[0] -= start_idx
+            else:
+                # For stepped slicing, map original indices to new positions
+                slice_indices[0] = (slice_indices[0] - start_idx) // step_size
+
+            # Calculate new shape
+            slice_shape = list(tensor.shape)
+            slice_shape[0] = (end_idx - start_idx + step_size - 1) // step_size
+
+            return torch.sparse_coo_tensor(slice_indices, slice_values, slice_shape, device=tensor.device, dtype=tensor.dtype).coalesce()
+        else:
+            # Create empty sparse tensor
+            new_batch_size = (end_idx - start_idx + step_size - 1) // step_size
+            return self._create_empty_sparse_tensor(tensor, new_batch_size)
+
 
     def check_consistency(self):
         """Check the consistency of the DataProto. Mainly for batch and non_tensor_batch
@@ -589,19 +748,88 @@ class DataProto:
             non_tensor_batch=non_tensor_batch,
             meta_info=meta_info,
         )
-
-    def to(self, device) -> "DataProto":
-        """move the batch to device
+    
+    def to(self, device, non_blocking: bool = False, pin_memory: bool = False) -> "DataProto":
+        """Move the batch to a device with optional async + pinned CPU copies.
 
         Args:
-            device (torch.device, str): torch device
+            device (torch.device | str): Destination device.
+            non_blocking (bool): If True, use non-blocking copies when possible.
+            pin_memory (bool): If True and moving to CPU, place tensors in pinned host memory
+                to allow true async GPU→CPU transfers.
 
         Returns:
-            DataProto: the current DataProto
-
+            DataProto: self (mutated in-place).
         """
-        if self.batch is not None:
-            self.batch = self.batch.to(device)
+        if self.batch is None:
+            return self
+
+        # Normalize device
+        dev = torch.device(device) if not isinstance(device, torch.device) else device
+
+        # Fast path when not requesting pinned CPU or when destination is non-CPU
+        if dev.type != "cpu" or not pin_memory:
+            # tensordict.TensorDict.to forwards non_blocking to underlying tensors (when supported)
+            try:
+                self.batch = self.batch.to(dev, non_blocking=non_blocking)
+                return self
+            except TypeError:
+                # Older tensordict may not accept non_blocking kwarg
+                self.batch = self.batch.to(dev)
+                return self
+
+        # Slow path: move to pinned CPU memory to enable true async copies
+        # We allocate pinned CPU tensors and copy_ with non_blocking where supported.
+        new_tensors: dict[str, torch.Tensor] = {}
+        batch_size = self.batch.batch_size
+
+        for key, tensor in self.batch.items():
+            if not isinstance(tensor, torch.Tensor):
+                # Keep non-tensor entries as-is
+                new_tensors[key] = tensor
+                continue
+
+            # Already on CPU
+            if tensor.device.type == "cpu":
+                if pin_memory and hasattr(tensor, "is_pinned") and not tensor.is_pinned():
+                    try:
+                        new_tensors[key] = tensor.pin_memory()
+                    except Exception:
+                        new_tensors[key] = tensor
+                else:
+                    new_tensors[key] = tensor
+                continue
+
+            # Non-CPU source: attempt efficient path for CUDA; fallback otherwise
+            if tensor.is_sparse or tensor.layout in (torch.sparse_coo, getattr(torch, "sparse_csr", object)):
+                # Sparse pinned allocations aren’t generally supported; fallback to regular to()+optional pin
+                dst = tensor.to("cpu", non_blocking=non_blocking)
+                if pin_memory and hasattr(dst, "is_pinned") and not dst.is_pinned():
+                    try:
+                        dst = dst.pin_memory()
+                    except Exception:
+                        pass
+                new_tensors[key] = dst
+                continue
+
+            # Dense tensor path
+            try:
+                dst = torch.empty_like(tensor, device="cpu", pin_memory=True)
+                # Non-blocking only helps when src is CUDA and dst is pinned CPU
+                nb = non_blocking and (tensor.device.type == "cuda")
+                dst.copy_(tensor, non_blocking=nb)
+                new_tensors[key] = dst
+            except Exception:
+                # Fallback to regular to()+optional pin
+                dst = tensor.to("cpu", non_blocking=non_blocking)
+                if pin_memory and hasattr(dst, "is_pinned") and not dst.is_pinned():
+                    try:
+                        dst = dst.pin_memory()
+                    except Exception:
+                        pass
+                new_tensors[key] = dst
+
+        self.batch = TensorDict(source=new_tensors, batch_size=batch_size)
         return self
 
     def select(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None, deepcopy=False) -> "DataProto":
@@ -664,9 +892,18 @@ class DataProto:
         batch_size = int(idxs_np.sum()) if idxs_np.dtype == bool else idxs_np.shape[0]
 
         if self.batch is not None:
-            # Use TensorDict's built-in indexing capabilities
+            # Handle sparse tensors properly during indexing
+            selected_tensors = {}
+            for key, tensor in self.batch.items():
+                if tensor.is_sparse:
+                    # For sparse tensors, indexing might return dense tensors in some cases
+                    # but we preserve whatever PyTorch returns
+                    selected_tensors[key] = tensor[idxs_torch]
+                else:
+                    selected_tensors[key] = tensor[idxs_torch]
+
             selected_batch = TensorDict(
-                source={key: tensor[idxs_torch] for key, tensor in self.batch.items()},
+                source=selected_tensors,
                 batch_size=(batch_size,),
                 device=self.batch.device,
             )
@@ -712,18 +949,53 @@ class DataProto:
 
         # Handle the batch data
         if self.batch is not None:
-            # Use TensorDict's built-in slicing capabilities
-            sliced_batch = self.batch[slice_obj]
+            if self._has_sparse_tensors():
+                # Manual slicing for sparse tensors
+                sliced_batch = self._slice_batch_with_sparse_tensors(slice_obj)
+            else:
+                # Use TensorDict's built-in slicing capabilities for dense tensors only
+                sliced_batch = self.batch[slice_obj]
         else:
             sliced_batch = None
 
-        # Handle the non-tensor batch data
+        # Handle the non-tensor batch data (same for both sparse and dense)
         sliced_non_tensor = {}
         for key, val in self.non_tensor_batch.items():
             sliced_non_tensor[key] = val[slice_obj]
 
         # Return a new DataProto object
         return type(self)(batch=sliced_batch, non_tensor_batch=sliced_non_tensor, meta_info=self.meta_info)
+    
+    def _slice_batch_with_sparse_tensors(self, slice_obj: slice) -> TensorDict:
+        """
+        Manually slice a batch containing sparse tensors.
+
+        Args:
+            slice_obj: The slice object to apply
+
+        Returns:
+            A new TensorDict containing the sliced tensors
+        """
+        batch_size = self.batch.batch_size[0]
+
+        # Convert slice to explicit start/end/step
+        start_idx, end_idx, step_size = slice_obj.indices(batch_size)
+
+        # Create sliced tensors
+        sliced_tensors = {}
+        for key, tensor in self.batch.items():
+            if tensor.is_sparse:
+                # Ensure sparse tensor is coalesced and slice it
+                tensor = tensor.coalesce()
+                sliced_tensors[key] = self._slice_sparse_tensor(tensor, start_idx, end_idx, step_size)
+            else:
+                # For dense tensors, use normal slicing
+                sliced_tensors[key] = tensor[slice_obj]
+
+        # Calculate slice batch size
+        slice_batch_size = (end_idx - start_idx + step_size - 1) // step_size
+
+        return TensorDict(source=sliced_tensors, batch_size=(slice_batch_size,), device=self.batch.device)
 
     def pop(self, batch_keys=None, non_tensor_batch_keys=None, meta_info_keys=None) -> "DataProto":
         """Pop a subset of the DataProto via `batch_keys` and `meta_info_keys`
@@ -884,12 +1156,74 @@ class DataProto:
 
         bsz_in_batch = None
         if self.batch is not None:
-            batch_lst = self.batch.chunk(chunks=chunks, dim=0)
+            if self._has_sparse_tensors():
+                # Manual chunking for sparse tensors since TensorDict.chunk() doesn't support them
+                batch_lst = self._chunk_batch_with_sparse_tensors(chunks)
+            else:
+                # Use normal TensorDict chunking for dense tensors only
+                batch_lst = self.batch.chunk(chunks=chunks, dim=0)
             bsz_in_batch = np.array([batch.batch_size[0] for batch in batch_lst])
             chunk_indices = np.cumsum(bsz_in_batch)[:-1]
         else:
             batch_lst = [None for _ in range(chunks)]
 
+        # Handle non-tensor batch splitting
+        non_tensor_batch_lst = self._chunk_non_tensor_batch(chunks, bsz_in_batch, chunk_indices)
+
+        # Create output DataProto objects
+        output = []
+        for i in range(chunks):
+            output.append(type(self)(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info))
+
+        return output
+    
+    def _chunk_batch_with_sparse_tensors(self, chunks: int) -> list[TensorDict]:
+        """
+        Manually chunk a batch containing sparse tensors.
+
+        Args:
+            chunks: Number of chunks to create
+
+        Returns:
+            List of TensorDict objects, one for each chunk
+        """
+        batch_size = self.batch.batch_size[0]
+        chunk_size = batch_size // chunks
+        batch_lst = []
+
+        for i in range(chunks):
+            start_idx = i * chunk_size
+            end_idx = (i + 1) * chunk_size if i < chunks - 1 else batch_size
+
+            # Process each tensor in the batch
+            chunk_tensors = {}
+            for key, tensor in self.batch.items():
+                if tensor.is_sparse:
+                    # Ensure sparse tensor is coalesced and chunk it
+                    tensor = tensor.coalesce()
+                    chunk_tensors[key] = self._chunk_sparse_tensor(tensor, start_idx, end_idx)
+                else:
+                    # For dense tensors, use normal slicing
+                    chunk_tensors[key] = tensor[start_idx:end_idx]
+
+            # Create TensorDict for this chunk
+            chunk_batch = TensorDict(source=chunk_tensors, batch_size=(end_idx - start_idx,), device=self.batch.device)
+            batch_lst.append(chunk_batch)
+
+        return batch_lst
+    
+    def _chunk_non_tensor_batch(self, chunks: int, bsz_in_batch: np.ndarray = None, chunk_indices: np.ndarray = None) -> list[dict]:
+        """
+        Chunk the non-tensor batch data.
+
+        Args:
+            chunks: Number of chunks to create
+            bsz_in_batch: Batch sizes for each chunk (optional)
+            chunk_indices: Cumulative indices for splitting (optional)
+
+        Returns:
+            List of dictionaries containing non-tensor data for each chunk
+        """
         non_tensor_batch_lst = [{} for _ in range(chunks)]
         for key, val in self.non_tensor_batch.items():
             assert isinstance(val, np.ndarray)
@@ -901,13 +1235,7 @@ class DataProto:
             for i in range(chunks):
                 non_tensor_batch_lst[i][key] = non_tensor_lst[i]
 
-        output = []
-        for i in range(chunks):
-            output.append(
-                type(self)(batch=batch_lst[i], non_tensor_batch=non_tensor_batch_lst[i], meta_info=self.meta_info)
-            )
-
-        return output
+        return non_tensor_batch_lst
 
     def split(self, split_size: int) -> list["DataProto"]:
         """Split the batch among dim=0 into chunks. The meta_info is passed to each DataProto after split.
@@ -931,11 +1259,22 @@ class DataProto:
         Returns:
             DataProto: concatenated DataProto
         """
-        batch_lst = []
-        for batch in data:
-            batch_lst.append(batch.batch)
-        new_batch = torch.cat(batch_lst, dim=0) if batch_lst[0] is not None else None
+        batch_lst = [d.batch for d in data]
 
+        if batch_lst[0] is not None:
+            # Check if any batch contains sparse tensors
+            has_sparse_tensors = any(any(tensor.is_sparse for tensor in batch.values()) for batch in batch_lst if batch is not None)
+
+            if has_sparse_tensors:
+                # Manual concatenation for sparse tensors
+                new_batch = DataProto._concat_batches_with_sparse_tensors(batch_lst)
+            else:
+                # Use normal TensorDict concatenation for dense tensors only
+                new_batch = torch.cat(batch_lst, dim=0)
+        else:
+            new_batch = None
+
+        # Concatenate non-tensor batch data (same for both sparse and dense)
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
         for key, val in non_tensor_batch.items():
             non_tensor_batch[key] = np.concatenate(val, axis=0)
@@ -966,7 +1305,44 @@ class DataProto:
 
         cls = type(data[0]) if len(data) > 0 else DataProto
         return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=merged_meta_info)
+    
 
+    @staticmethod
+    def _concat_batches_with_sparse_tensors(batch_lst: list[TensorDict]) -> TensorDict:
+        """
+        Manually concatenate batches containing sparse tensors.
+
+        Args:
+            batch_lst: List of TensorDict objects to concatenate
+
+        Returns:
+            A new TensorDict with concatenated tensors
+        """
+        # Collect all unique keys across all batches
+        all_keys = set()
+        for batch in batch_lst:
+            if batch is not None:
+                all_keys.update(batch.keys())
+
+        # Concatenate tensors for each key
+        concatenated_tensors = {}
+        for key in all_keys:
+            tensors_to_concat = []
+            for batch in batch_lst:
+                if batch is not None and key in batch:
+                    tensors_to_concat.append(batch[key])
+
+            if tensors_to_concat:
+                # Use torch.cat which works for both sparse and dense tensors
+                concatenated_tensors[key] = torch.cat(tensors_to_concat, dim=0)
+
+        # Calculate total batch size
+        total_batch_size = sum(batch.batch_size[0] for batch in batch_lst if batch is not None)
+
+        return TensorDict(
+            source=concatenated_tensors, batch_size=(total_batch_size,), device=batch_lst[0].device if batch_lst[0] is not None else None
+        )
+    
     def reorder(self, indices):
         """
         Note that this operation is in-place
@@ -1224,12 +1600,39 @@ class DataProtoFuture:
 
 
 def all_gather_data_proto(data: DataProto, process_group):
+    """
+    All-gather operation for DataProto with sparse tensor support.
+
+    This is an in-place operator similar to torch.distributed.all_gather.
+    Handles sparse tensors by skipping contiguous() calls which are not supported.
+
+    Args:
+        data: DataProto to gather across all processes
+        process_group: Process group for distributed communication
+    """
     # Note that this is an inplace operator just like torch.distributed.all_gather
     group_size = torch.distributed.get_world_size(group=process_group)
     assert isinstance(data, DataProto)
+
+    # Save original device and move to correct device for communication
     prev_device = data.batch.device
     data = data.to(get_device_id())
-    data.batch = allgather_dict_tensors(data.batch.contiguous(), size=group_size, group=process_group, dim=0)
+
+    # Handle sparse tensors in allgather - apply contiguous() only to dense tensors
+    batch_dict = {}
+    for key, tensor in data.batch.items():
+        if tensor.is_sparse:
+            # For sparse tensors, we can't call contiguous() but allgather should work
+            batch_dict[key] = tensor
+        else:
+            # For dense tensors, apply contiguous() for better communication performance
+            batch_dict[key] = tensor.contiguous()
+
+    # Create new TensorDict with processed tensors
+    data.batch = TensorDict(batch_dict, batch_size=data.batch.batch_size, device=data.batch.device)
+
+    # Perform the actual all-gather operation
+    data.batch = allgather_dict_tensors(data.batch, size=group_size, group=process_group, dim=0)
     data = data.to(prev_device)
     # all gather non_tensor_batch
     all_non_tensor_batch = [None for _ in range(group_size)]

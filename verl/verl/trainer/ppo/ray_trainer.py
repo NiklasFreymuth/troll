@@ -653,6 +653,8 @@ class RayPPOTrainer:
                         (var_name == core_var)
                         and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
                         and (f"@{n_max}" in metric_name)
+                        and not "best" in metric_name
+                        and not "std" in metric_name
                     ):
                         metric_sec = "val-core"
                     else:
@@ -860,9 +862,10 @@ class RayPPOTrainer:
         else:
             if self.config.trainer.resume_mode == "resume_path":
                 assert isinstance(self.config.trainer.resume_from_path, str), "resume ckpt must be str type"
-                assert "global_step_" in self.config.trainer.resume_from_path, (
-                    "resume ckpt must specify the global_steps"
-                )
+                if "global_step_" in self.config.trainer.resume_from_path:
+                    global_step_folder = self.config.trainer.resume_from_path
+                else:
+                    global_step_folder = find_latest_ckpt_path(self.config.trainer.resume_from_path)
                 global_step_folder = self.config.trainer.resume_from_path
                 if not os.path.isabs(global_step_folder):
                     working_dir = os.getcwd()
@@ -1163,7 +1166,11 @@ class RayPPOTrainer:
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
+                        # need to pass this over the batch.meta_info to get it to the ray workers...
+                        compute_logits = "trpl" in self.config.actor_rollout_ref.actor.policy_loss.loss_mode
+                        batch.meta_info["compute_logits"] = compute_logits
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        batch.meta_info.pop("compute_logits", None)
                         entropys = old_log_prob.batch["entropys"]
                         response_masks = batch.batch["response_mask"]
                         loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode

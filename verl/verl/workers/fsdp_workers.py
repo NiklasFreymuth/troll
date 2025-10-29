@@ -995,6 +995,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
+
+        compute_logits = data.meta_info.get("compute_logits", False)
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
             data.meta_info["is_lora"] = True
@@ -1013,10 +1015,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on ref.compute_log_prob
-            output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
-            output = DataProto.from_dict(tensors={"ref_log_prob": output})
+            output, _, logits = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False, compute_logits=compute_logits)
+            tensors = {"ref_log_prob": output}
+            if logits is not None:
+                tensors["ref_logits"] = logits
+            output = DataProto.from_dict(tensors=tensors)
+            output = self.ulysses_sharding_manager.postprocess_data(output)
 
-        output = output.to("cpu")
+        output = output.to("cpu", non_blocking=False, pin_memory=False)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
@@ -1916,7 +1922,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         if self.world_size > 1 and fsdp_version(self.reward_module) == 1:
             self.reward_module._handle.reshard(True)
 
-        output = output.to("cpu")
+        output = output.to("cpu", non_blocking=False, pin_memory=False)
         return output
 
 

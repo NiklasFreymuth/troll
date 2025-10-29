@@ -70,21 +70,21 @@ The following commands will download a model and run the example from our custom
 Make sure you are in the `troll` directory before running these commands.
 
 *Side comment*
-You **could** download an example dataset via
+You **could** download an example dataset via, e.g.,
 ```
 python verl/examples/data_preprocess/gsm8k.py --local_dir ./data/gsm8k
 ```
-However, we currently simply have the datasets in our git repo, as they are small and this avoids any download issues.
+However, we currently simply have the datasets in our git repo. They are sufficiently small and this avoids any download issues.
 So you can skip this step, as the dataset is already in `./data/gsm8k`.
 
 
-Download a model. We download the models locally to avoid huggingface rate limits. We use Qwen2.5-0.5B-Instruct as it is small ("only 500m parameters") and fast
+Download a model. We download the models locally to avoid huggingface rate limits. We use Qwen3-0.6B as it is small and powerful enough for debugging
 
 ```
-python download_model.py --model_type "Qwen/Qwen2.5-0.5B-Instruct"
+python download_model.py --model_type "Qwen/Qwen3-0.6B"
 ```
 
-For other model types, simply change the `--model_type` argument to any model on huggingface.
+For other model types, simply change the `--model_type` argument to any huggingface model.
 
 Actually run the example using hydra.
 We build our hydra config locally in troll/config. 
@@ -92,8 +92,8 @@ For this, we adapt the verl ppo base config, so we need to adapt the config path
 We can run this with locally 4 or 1 GPU(s) as follows.
 
 ```
-N_GPUS=4  # or 1 if you are poor
-python main.py +_runs=debug/debug n_gpus=$N_GPUS
+N_GPUS=4
+python main.py +_runs=debug n_gpus=$N_GPUS
 ```
 
 

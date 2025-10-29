@@ -34,6 +34,11 @@ from verl.utils import as_torch_index, group_mean_std
 from verl.utils.import_utils import deprecated
 from verl.workers.config import ActorConfig
 
+from discrete_trpl.sdtrpl_layer import SdtrplLayer
+from discrete_trpl.sparse_gather import sparse_gather
+from discrete_trpl.sparse_helpers import sparse_mask_3d_to_2d
+from discrete_trpl.sparse_log_prob import SparseLogProb
+
 PolicyLossFn = Callable[
     [
         torch.Tensor,  # old_log_prob
@@ -806,6 +811,189 @@ def agg_loss(loss_mat: torch.Tensor, loss_mask: torch.Tensor, loss_agg_mode: str
         raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
     return loss
+
+
+
+@register_policy_loss("trpl")
+def compute_policy_loss_trpl(
+    old_logits: torch.Tensor,
+    policy_logits: torch.Tensor,
+    responses: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    trpl_layer: SdtrplLayer,
+    alpha: float = 1.0,
+    kl_bound: float = 0.1,
+    default_log_prob: float = -20,
+    loss_agg_mode: str = "token-mean",
+    return_debug_info: bool = False,
+) -> tuple[torch.Tensor, dict]:
+    """
+    TRPL loss with sparse layer (default).
+    Assumes input logits are sparse of shape (batch_size, seq_len, num_logits).
+    All other tensors are similarly of shape (batch_size, seq_len, ...)
+    """
+    assert old_logits.is_sparse and policy_logits.is_sparse, "Expected sparse logits for trpl mode"
+    assert isinstance(trpl_layer, SdtrplLayer), "Expected SdtrplLayer for trpl mode"
+
+    # Apply response mask
+    response_mask = response_mask.bool()
+    # Reshape/mask sparse input tensors from (bsz, seq_len, vocab_size) to (total_tokens, vocab_size) if they are 3d,
+    # leave unchanged if they are already 2d.
+    # Similarly, reshape/mask responses and advantages to (total_tokens,)
+    # Given sufficiently large seq_len, we will save memory and computation this way.
+    # The nnz in the sparse tensors remains unchanged, except for EoS 1 token per sequence being masked out.
+    old_logits = sparse_mask_3d_to_2d(old_logits, response_mask)
+    policy_logits = sparse_mask_3d_to_2d(policy_logits, response_mask)
+    responses = responses[response_mask]  # automatically flattens to (total_tokens, )
+    advantages = advantages[response_mask]  # automatically flattesn to (total_tokens, )
+    response_mask = torch.ones_like(responses, dtype=torch.bool)  # all ones after masking
+
+    # Projection. This also converts the logits into a DefaultSparse object. projected_logits.x has shape policy_logits.shape
+    projected_logits, info_dict = trpl_layer(policy_logits, old_logits, default_log_prob=default_log_prob, bound=kl_bound)
+
+    # Compute importance ratios
+    old_log_probs = sparse_gather(old_logits, -1, responses.unsqueeze(-1), default=default_log_prob).squeeze(-1)
+    projected_log_probs = sparse_gather(
+        projected_logits.x, dim=-1, index=responses.unsqueeze(-1), default=projected_logits.fill_value_tensor[..., None]
+    ).squeeze(-1)
+    logratio = projected_log_probs - old_log_probs
+    importance_ratio = torch.exp(logratio)
+
+    policy_logits = SparseLogProb(policy_logits, default_log_prob, dim=-1)
+    # Use common TRPL loss computation
+    return _compute_trpl_policy_loss(
+        projected_logits=projected_logits,
+        policy_logits=policy_logits,
+        advantages=advantages,
+        response_mask=response_mask,
+        importance_ratio=importance_ratio,
+        alpha=alpha,
+        loss_agg_mode=loss_agg_mode,
+        return_debug_info=return_debug_info,
+        info_dict=info_dict,
+    )
+
+@register_policy_loss("trpl_seq")
+def compute_policy_loss_trpl_seq(
+    old_logits: torch.Tensor,
+    policy_logits: torch.Tensor,
+    responses: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    trpl_layer: SdtrplLayer,
+    alpha: float = 1.0,
+    kl_bound: float = 0.1,
+    default_log_prob: float = -20,
+    loss_agg_mode: str = "seq-mean-token-mean",
+    return_debug_info: bool = False,
+) -> tuple[torch.Tensor, dict]:
+    """
+    TRPL loss with sequence-level GSPO ratio.
+    Assumes everything (layer and inputs) are sparse.
+    """
+    # Apply response mask
+    response_mask = response_mask.bool()
+    assert old_logits.is_sparse and policy_logits.is_sparse, "Expected sparse logits for trpl_seq mode"
+    assert isinstance(trpl_layer, SdtrplLayer), "Expected SdtrplLayer for trpl_seq mode"
+
+    if loss_agg_mode != "seq-mean-token-mean":
+        warnings.warn(f" {loss_agg_mode=} is not 'seq-mean-token-mean' for gspo_ratio. Overriding to 'seq-mean-token-mean'.")
+        loss_agg_mode = "seq-mean-token-mean"
+
+    batch_size, _, vocab_size = policy_logits.shape
+    seq_lengths = torch.sum(response_mask, dim=-1).clamp(min=1)
+
+    
+    # Case where we do not calculate the KL over the full sequence. This is essentially just the sparse trpl loss, but with some
+    # advantage re-arrangement.
+    old_logits = sparse_mask_3d_to_2d(old_logits, response_mask)
+    policy_logits = sparse_mask_3d_to_2d(policy_logits, response_mask)
+    responses = responses[response_mask]  # automatically flattens to (total_tokens, )
+    advantages = advantages[response_mask]  # automatically flattesn to (total_tokens, )
+    response_mask = torch.ones_like(responses, dtype=torch.bool)  # all ones after masking
+
+    # Projection. This also converts the logits into a DefaultSparse object. projected_logits.x has shape policy_logits.shape
+    projected_logits, info_dict = trpl_layer(policy_logits, old_logits, default_log_prob=default_log_prob, bound=kl_bound)
+
+    # Compute importance ratios
+    old_log_probs = sparse_gather(old_logits, -1, responses.unsqueeze(-1), default=default_log_prob).squeeze(-1)
+    projected_log_probs = sparse_gather(
+        projected_logits.x, dim=-1, index=responses.unsqueeze(-1), default=projected_logits.fill_value_tensor[..., None]
+    ).squeeze(-1)
+    logratio = projected_log_probs - old_log_probs
+
+    # Default token-level case
+    # following https://github.com/volcengine/verl/pull/2775/, we update the logratio of the importance weights
+    # to go over sequences
+    # compute sequence-level importance ratio:
+    # si(θ) = (π_θ(yi|x)/π_θold(yi|x))^(1/|yi|) =
+    # exp [(1/|y_i|) * Σ_t log(π_θ(y_i,t|x,y_i,<t)/π_θold(y_i,t|x,y_i,<t))]
+    logratios = torch.split(logratio, list(seq_lengths), dim=0)
+    negative_approx_kl_seq = torch.tensor([logratio_i.mean(0) for logratio_i in logratios], device=logratio.device)
+    negative_approx_kl_seq = torch.repeat_interleave(negative_approx_kl_seq, seq_lengths)
+
+    # Combined ratio at token level:
+    # s_i,t(θ) = sg[s_i(θ)] · π_θ(y_i,t|x, y_i,<t) / sg[π_θ(y_i,t|x, y_i,<t)]
+    # In log space: log(s_i,t(θ)) = sg[log(s_i(θ))] + log_prob - sg[log_prob]
+    log_seq_importance_ratio = projected_log_probs - projected_log_probs.detach() + negative_approx_kl_seq.detach()
+    log_seq_importance_ratio = torch.clamp(log_seq_importance_ratio, max=10.0)
+    importance_ratio = torch.exp(log_seq_importance_ratio)
+
+    policy_logits = SparseLogProb(policy_logits, default_log_prob, dim=-1)
+    # Use common TRPL loss computation
+    return _compute_trpl_policy_loss(
+        projected_logits=projected_logits,
+        policy_logits=policy_logits,
+        advantages=advantages,
+        response_mask=response_mask,
+        importance_ratio=importance_ratio,
+        alpha=alpha,
+        loss_agg_mode=loss_agg_mode,
+        return_debug_info=return_debug_info,
+        info_dict=info_dict,
+    )
+
+
+def _compute_trpl_policy_loss(
+    projected_logits: torch.Tensor,
+    policy_logits: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    importance_ratio: torch.Tensor,
+    alpha: float,
+    loss_agg_mode: str,
+    return_debug_info: bool,
+    info_dict: dict,
+) -> tuple[torch.Tensor, dict]:
+    """
+    Private helper function to compute TRPL policy loss from projected logits and importance ratios.
+
+    This function contains the common TRPL loss computation shared by all TRPL variants
+    (sparse, dense, seq) after they compute their projected logits and importance ratios.
+    """
+    # Policy gradient loss
+
+    pg_losses = -advantages * importance_ratio
+    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    # Projection loss
+    if isinstance(policy_logits, SparseLogProb):
+        projection_losses = policy_logits.kl(projected_logits.detach())
+    else:
+        projection_losses = torch.sum(policy_logits.exp() * (policy_logits - projected_logits.detach()), dim=-1)
+
+    # We use the same loss as for the main policy gradient objective to get consistent weights between sequences.
+    projection_loss = agg_loss(loss_mat=projection_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    pg_loss = pg_loss + alpha * projection_loss
+
+    # Add projected logits to info dict if debugging
+    if return_debug_info:
+        raise NotImplementedError("return_debug_info not implemented yet for _compute_trpl_policy_loss")
+        # info_dict["projected_logits"] = projected_logits
+
+    return pg_loss, info_dict
 
 
 @deprecated("verl.trainer.ppo.core_algos.compute_policy_loss_vanilla")

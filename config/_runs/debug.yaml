@@ -1,0 +1,25 @@
+
+
+# @package _global_
+defaults:
+  - /method: grpo
+  - /task: gsm8k
+  - default  # import default settings for paper experiments
+  - _self_
+
+_idx: dbg  # Debug experiment
+
+
+n_gpus: 4
+
+llm: Qwen_Qwen3-0.6B
+model_name: qwen3_0.6b
+performance:
+  base_micro_bsz: ~
+  max_tokens: 4000  # Max tokens for a given micro batch. Set relatively low here for debugging purposes
+
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: trpl  # test out the trpl loss

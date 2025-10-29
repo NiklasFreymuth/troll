@@ -47,7 +47,7 @@ hydra:
       - method: ppo
         actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
       - method: gspo
-        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla_seq
+        actor_rollout_ref.actor.policy_loss.loss_mode: gspo
 
       ### Datasets
       # TRPLs
