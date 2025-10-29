@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  # Use the main verl PPO trainer configuration as base
+  - grpo
+  - _self_
+
+algorithm_name: gspo
+
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: vanilla_seq  # Use sequence-level GSPO importance ratios. Either vanilla_seq or trpl_seq
+    loss_agg_mode: seq-mean-token-mean
+    trpl:
+      project_full_sequence: False   # If True, project the KL over the full sequence

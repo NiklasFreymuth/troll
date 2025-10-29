@@ -1,0 +1,45 @@
+# @package performance
+# Custom dict for parameters for performance tuning. None of these should affect the actual model convergence, its just
+# for faster/more efficient training.
+# These parameters should also be complete, i.e., all parameters that affect performance should be here and are
+# distributed below
+
+# For Qwen and Llama models, we can remove padding tokens to save memory and computation
+# adapt these three things
+use_dynamic_bsz: True  # If True, will use dynamic batch sizing based on tokens_per_gpu below
+base_micro_bsz: ???   # should be none if use_dynamic_bsz = True
+max_tokens: ???       # should be none if use_dynamic_bsz = False
+
+use_remove_padding:  True
+
+### Batch sizes. ###
+# Batch sizes are *per GPU*. This is for micro batch sizes, which are accumulated to mini batches later
+# If we set use_dynamic_bsz=True, we need to tune the number of parallel tokens.
+# Else, we tune the number of sequences.
+# Forward and rollout can usually be larger than base, since no gradients are stored.
+micro_batch_size:
+  forward: ${mul:${performance.base_micro_bsz},2}
+  rollout: ${mul:${performance.base_micro_bsz},2}
+dynamic_batch_size:
+  # We can sensibly upper bound the maximum number of tokens per GPU via the maximum sequence length
+  # (which is prompt length+response length) times the base micro batch size
+  # For example, we may set micro_batch_size.base=16, max_prompt_length=max_response_length=512, leading to
+  # max tokens per GPU of 16*1024=16384
+  ppo_max_token_len_per_gpu: ${performance.max_tokens}
+  log_prob_max_token_len_per_gpu: ${performance.max_tokens}
+  forward_max_token_len_per_gpu: ${performance.max_tokens}
+  critic_max_token_len_per_gpu: ${performance.max_tokens}
+
+
+# Parameters for what to offload to CPU to keep the GPU less occupied
+offloading:
+  enable_gradient_checkpointing: True
+  enable_activation_offload: True  # True should allow for larger batch sizes. Only available for fsdp
+
+strategy: fsdp2  # Can be fsdp or fsdp2 (where the latter should be slightly faster
+fsdp_forward_prefetch: True  # Whether to prefetch during forward pass. Should be True for most cases
+
+# Things we can probably keep@default
+gpu_memory_utilization: 0.5  # How much of the GPU memory to use for the vLLM rollout. Recommended between 0.5 and 0.7
+tensor_model_parallel_size: 1
+max_num_batched_tokens: 10240

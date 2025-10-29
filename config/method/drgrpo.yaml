@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  # Use the main verl PPO trainer configuration as base
+  - grpo
+  - _self_
+
+algorithm_name: drgrpo
+
+# GRPO uses a KL as an additional loss term, but does not use it as part of the reward.
+# It also uses n>1 samples per rollout for the group normalization, and uses the grpo advantage estimator.
+
+algorithm:
+  norm_adv_by_std_in_grpo: False
+
+actor_rollout_ref:
+  actor:
+    loss_agg_mode: seq-mean-token-sum-norm  # Use seq-mean-token-sum-norm for DrGRPO, seq-mean-token-sum for GRPO
+    # for GRPO, we do use a KL loss

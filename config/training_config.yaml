@@ -1,0 +1,25 @@
+# Default training configuration for TROLL project
+# This configuration references the main verl PPO trainer config and provides sensible defaults
+# We use this as the base for all our training runs, and our main.py has this as the base config_name/entry point.
+
+defaults:
+  # Use the main verl PPO trainer configuration as base
+  - ../verl/verl/trainer/config/ppo_trainer.yaml@package=_global_
+  - performance: default
+  #- method: ???  # Either ppo, grpo, or dr_grpo.
+  #- task: ???  # E.g., gsm8k.
+  - hydra: default_hydra
+  - override hydra/sweeper: list
+  - _self_
+
+
+n_gpus: ???
+
+# High-level configurations
+base_logging_dir: "./outputs"
+horeka_account: hk-project-p0022253
+exp_name: ???
+_idx: ???  # Some unique identifier for each experiment
+_version: 1  # Version for this experiment. For tracking purposes.
+model_path: ???  # E.g. Qwen/Qwen2.5-0.5B-Instruct
+

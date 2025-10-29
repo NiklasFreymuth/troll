@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - /method: grpo  # specify below
+  - /task: dapo
+  - default  # import default settings for paper experiments
+  - _self_
+
+_idx: 110  # Smaller models (<2B) parameters)
+
+performance:
+  max_tokens: 6144  # fewer tokens to run these experiments on smaller GPUs
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    # Big grid over different small models for trpl x vanilla and dapo x gsm8k
+    grid_params:
+      actor_rollout_ref.actor.policy_loss.loss_mode: trpl, vanilla
+      task: gsm8k, dapo
+    list_params:
+      model_name:
+        - qwen3_0.6b
+        - qwen3_1.7b
+        - qwen2_0_5b
+        - qwen2_1_5b
+      llm:
+        - Qwen_Qwen3-0.6B
+        - Qwen_Qwen3-1.7B
+        - Qwen_Qwen2.5-0.5B-Instruct
+        - Qwen_Qwen2.5-1.5B-Instruct

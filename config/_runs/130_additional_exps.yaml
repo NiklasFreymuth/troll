@@ -1,0 +1,34 @@
+# @package _global_
+defaults:
+  - /method: grpo  # specify below
+  - /task: dapo
+  - default
+  - _self_
+
+
+_idx: 130  # Additional experiments on KL bound and sparsification threshold
+
+llm: Qwen_Qwen3-1.7B
+model_name: qwen3_1.7b
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: trpl  # These experiments explore trpl parameters, so only trpl really makes sense here
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    ablative_params:
+      ### Ablations: {kl_bound, sparsify_logits} x {trpl}
+      # KL bounds
+      - actor_rollout_ref.actor.trpl.kl_bound: 0.01
+        suffix: 1
+      - actor_rollout_ref.actor.trpl.kl_bound: 0.25
+        suffix: 2
+      # Sparsify logits
+      - actor_rollout_ref.actor.sparsify_logits.total_default_keep_maxnum: 256
+        actor_rollout_ref.actor.sparsify_logits.threshold: 1e-6
+        suffix: 3
+      - actor_rollout_ref.actor.sparsify_logits.total_default_keep_maxnum: 16
+        actor_rollout_ref.actor.sparsify_logits.threshold: 1e-4
+        suffix: 4

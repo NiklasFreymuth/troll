@@ -1,0 +1,60 @@
+
+
+# @package _global_
+defaults:
+  - /method: grpo  # override below
+  - /task: dapo
+  - default  # import default settings for paper experiments
+  - _self_
+
+_idx: 101  # Qwen2.5 7B experiments
+
+
+n_gpus: 4
+
+llm: Qwen_Qwen2.5-7B-Instruct
+model_name: qwen2.5
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: trpl
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    ablative_params:
+      ############################################################
+      # Default is Qwen2.5 + DAPO (eval, aligned) + GRPO + TRPL. #
+      # The ablative parameters change one thing at a time.      #
+      ############################################################
+
+      ### Vanilla comparison.
+      - actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
+
+      ### Algorithm: {drgrpo, ppo, gspo} x {trpl, vanilla}
+      # TRPLs
+      - method: drgrpo
+      - method: ppo
+      - method: gspo
+        actor_rollout_ref.actor.policy_loss.loss_mode: trpl_seq
+
+
+      # Vanillas
+      - method: drgrpo
+        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
+      - method: ppo
+        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
+      - method: gspo
+        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla_seq
+
+      ### Datasets
+      # TRPLs
+      - task: gsm8k
+      - task: eurus
+      # Vanillas
+      - task: gsm8k
+        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
+      - task: eurus
+        actor_rollout_ref.actor.policy_loss.loss_mode: vanilla
+

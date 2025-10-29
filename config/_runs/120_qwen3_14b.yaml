@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - /method: grpo  # specify below
+  - /task: dapo
+  - default
+  - _self_
+
+
+_idx: 120  # Qwen3-14B experiments
+
+llm: Qwen_Qwen3-14B
+model_name: qwen3_14b
+performance:
+  max_tokens: 6144  # Minimum length for 1 full sequence
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    grid_params:
+      actor_rollout_ref.actor.policy_loss.loss_mode: trpl, vanilla

@@ -1,0 +1,14 @@
+run:
+  dir: ${base_logging_dir}/hydra/${_idx}/${now:%Y-%m-%d_%H-%M-%S}
+sweep:
+  dir: ${base_logging_dir}/hydra/${_idx}/${now:%Y-%m-%d_%H-%M-%S}
+  # subdir: ${hydra.job.num}    # 0,1,2,... per job inside the same root
+output_subdir: .hydra         # keep hydra’s configs under the run dir
+job:
+  # chdir: true                 # make the process CWD = the run directory
+  env_set:
+    # Set wandb keys for proper logging on device and remote
+    WANDB_ENTITY: kit-alr
+    WANDB_DIR: ${hydra:runtime.output_dir}
+    WANDB_CACHE_DIR: ${hydra:runtime.output_dir}/.wandb_cache
+    WANDB_ARTIFACT_DIR: ${hydra:runtime.output_dir}/artifacts

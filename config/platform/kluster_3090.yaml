@@ -1,0 +1,26 @@
+# @package _global_
+
+defaults:
+  - override /hydra/launcher: submitit_slurm
+
+
+# Acts as both an example platform, and as our debug platform for SLURM on local 3090 nodes
+hydra:
+  mode: MULTIRUN  # needed for launcher to be used
+  launcher:
+    # launcher/cluster specific options
+    timeout_min: 8640 # in minutes
+    gres: gpu:${n_gpus}  # we want all GPUs in a node
+    mem_per_cpu: 2880  # in MB (* 8 cores in use = 120GB)
+    exclude: node[1-5]  # Only use the 3090 nodes (which are 6, 7)
+    additional_parameters:
+      cpus-per-task: 24  # we want all CPUs in a node
+    setup:
+      - unset ROCR_VISIBLE_DEVICES
+      # Add the cleanup trap as a multi-line shell command ✨
+      - |
+        cleanup() {
+          echo "SLURM JOB ID: $SLURM_JOB_ID - Trap triggered. Forcing ray stop."
+          ray stop
+        }
+        trap cleanup EXIT TERM INT

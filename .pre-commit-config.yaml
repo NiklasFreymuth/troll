@@ -1,37 +1,19 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.12.2"
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
     hooks:
-      - id: ruff
-        args: ["--fix", "--show-fixes", "--output-format=full"]
-        exclude: ^.*\.(ipynb)$
-      - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.17.0'
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: trailing-whitespace
+      - id: check-added-large-files
+        args: ['--maxkb=4000']
+  - repo: https://github.com/psf/black
+    rev: 23.9.1
     hooks:
-      - id: mypy
-
-  - repo: local
+      - id: black
+        args: ['--line-length', '150']
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
     hooks:
-      - id: autogen-trainer-cfg
-        name: Generate and verify verl/trainer/config/_generated_*.yaml
-        entry: scripts/generate_trainer_config.sh
-        language: script
-        pass_filenames: false
-
-  - repo: local
-    hooks:
-      - id: check-docstrings
-        name: Check doc string coverage
-        entry: python3 tests/special_sanity/check_docstrings.py
-        language: python
-        pass_filenames: false
-
-  - repo: local
-    hooks:
-      - id: check-license
-        name: Check license
-        entry: python3 tests/special_sanity/check_license.py --directories examples recipe scripts tests verl setup.py
-        language: python
-        pass_filenames: false
+      - id: isort
+        args: ["--profile", "black"]

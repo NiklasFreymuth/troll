@@ -1,0 +1,25 @@
+# @package _global_
+
+# default task (dataset+trainer) configuration
+
+task_name: ???
+data:
+  data_base_dir: ./data
+  train_files: ???
+  val_files: ???
+
+  max_prompt_length: ???
+  max_response_length: ???
+
+  # Auxiliary quantity thats used for other calculations
+  max_sequence_length: ${add:${.max_prompt_length},${.max_response_length}}
+
+  train_batch_size: 256
+
+
+trainer:
+  test_freq: 10   # 4 in original way to often
+  save_freq: 10  # 32 in original, way to often
+  log_val_generations: 5
+  total_training_steps: 1001  # load-bearing one. Train for 1k steps.
+  total_epochs: 20

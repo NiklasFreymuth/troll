@@ -1,0 +1,24 @@
+# @package _global_
+
+# Default DAPO dataset configuration
+# This contains all common settings shared by DAPO variants
+
+defaults:
+  - abstract_task
+  - _self_
+
+task_name: eurus
+data:
+  train_files: ${data.data_base_dir}/eurus/train_math_only.parquet
+  val_files: ${data.data_base_dir}/eurus/validation_math_only.parquet
+
+  max_prompt_length: 2048
+  max_response_length: 4096
+  prompt_key: prompt
+  truncation: left     # TODO: Check
+  filter_overlong_prompts: False
+  return_raw_chat: True
+# DAPO requires specific reward manager configuration
+
+reward_model:
+  reward_manager: prime

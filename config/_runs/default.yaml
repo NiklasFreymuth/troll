@@ -1,0 +1,48 @@
+# @package _global_
+defaults:
+  - _self_
+
+
+# Experiments to figure out if we can run large prompt and response lengths on our hardware w/ the PPO loss
+
+# High-level configurations
+# exp_name is a unique identifier for each run
+exp_name: ${_idx}_m${model_name}_t${task_name}_a${algorithm_name}_${actor_rollout_ref.actor.policy_loss.loss_mode}_${suffix}
+_version: 1  # Some version identifier. Increment when making significant changes.
+_idx: ???  # Unique for this experiment
+suffix: 0  # For, e.g., ablations. Used to make exp_name unique if model, task, algorithm, loss_mode are the same.
+
+
+llm: ???  # Specify which model to load
+model_name: ???  # Specify model name (for logging only)
+model_path: "./models/${llm}"
+
+n_gpus: 4
+performance:
+  base_micro_bsz: ~
+  max_tokens: 12000  # Max tokens for a given micro batch
+
+actor_rollout_ref:
+  rollout:
+    # those are default
+    val_kwargs:
+      do_sample: False
+      n: 1
+
+  # Set contribution 2 kl loss thing to False by default
+  actor:
+    use_kl_loss: False
+    kl_loss_coef: 0
+    sparsify_logits:
+      total_default_keep_maxnum: 64
+      threshold: 1e-5
+      chunk_size: 1024
+algorithm:
+  use_kl_in_reward: False
+  kl_ctrl:
+    kl_coef: 0.0
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: ???  # Specify loss mode: trpl, vanilla, trpl_seq, vanilla_seq

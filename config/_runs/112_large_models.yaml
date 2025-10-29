@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - /method: grpo  # specify below
+  - /task: gsm8k
+  - default
+  - _self_
+
+
+_idx: 112  # Large models (4-8B parameters)
+
+
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    # Big grid over different large models for trpl x vanilla and dapo x gsm8k.
+    # We exclude qwen3_8b and qwen2.5_7b here, since they are covered in separate runs (100 and 101, respectively).
+    # The remaining models achieve close to 0% performance on dapo, so we do not add them to these evaluations.
+    grid_params:
+      actor_rollout_ref.actor.policy_loss.loss_mode: trpl, vanilla
+    list_params:
+      model_name:
+        - apertus_8b
+        - apertus_8b_instr
+        - llama_8b
+        - llama_8b_no_instr
+      llm:
+        - swiss-ai_Apertus-8B-2509-ModTok
+        - swiss-ai_Apertus-8B-Instruct-2509
+        - meta-llama_Llama-3.1-8B-Instruct
+        - meta-llama_Llama-3.1-8B-ModTok

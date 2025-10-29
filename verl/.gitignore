@@ -1,18 +1,27 @@
-experiments/outputs
+
+**/*.pt
+**/checkpoints
+**/wget-log
+**/_build/
+**/*.ckpt
+**/outputs
+**/*.tar.gz
+**/playground
+**/wandb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*/__pycache__/
-*/*/__pycache__/
 *.py[cod]
 *$py.class
-
+dataset/*
+tensorflow/my_graph/*
+.idea/
 # C extensions
 *.so
 
 # Distribution / packaging
 .Python
-
+env/
 build/
 develop-eggs/
 dist/
@@ -24,11 +33,10 @@ lib64/
 parts/
 sdist/
 var/
+tmp/
 *.egg-info/
 .installed.cfg
 *.egg
-
-
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -50,7 +58,8 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
-.vscode
+pytest.ini
+output.txt
 
 # Translations
 *.mo
@@ -58,6 +67,14 @@ coverage.xml
 
 # Django stuff:
 *.log
+local_settings.py
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
 
 # Sphinx documentation
 docs/_build/
@@ -65,44 +82,47 @@ docs/_build/
 # PyBuilder
 target/
 
+# IPython Notebook
+.ipynb_checkpoints
 
-#user specific pydev project settings
-.pydevproject
-.project
-.settings
+# pyenv
+.python-version
 
-# Ignore python rope directories
+# celery beat schedule file
+celerybeat-schedule
+
+# dotenv
+.env
+
+# virtualenv
+venv/
+.venv/
+ENV/
+
+# Spyder project settings
+.spyderproject
+
+# Rope project settings
 .ropeproject
 
-# Ignore IntelliJ project folder
-.idea
-*/.idea
-
-n_link_sim/forwardModels/QuadLinkForwardModel.py
-n_link_sim/forwardModels/QuadLinkForwardModel_wrap.c
-n_link_sim/forwardModels/DoubleLinkForwardModel.py
-n_link_sim/forwardModels/DoubleLinkForwardModel_wrap.c
-n_link_sim/dist
-n_link_sim/build
-n_link_sim/N_Link_Simulator.egg-info
-
+# vscode
 .vscode
 
-# logging stuff
-runs
-videos
-wandb
+# Mac
+.DS_Store
+
+# vim
+*.swp
+
+# ckpt
+*.lock
+
+# data
+*.parquet
 
 
-# checkpoints and data
-data/dapo_original
-data/eurus
-models/*
-checkpoints/*
-outputs/*
-
-# flash attn wheels
-
-#*.parquet
-
-flash*.whl
+# local logs
+logs
+log
+outputs
+.history

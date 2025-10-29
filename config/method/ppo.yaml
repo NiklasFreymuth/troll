@@ -1,0 +1,21 @@
+# @package _global_
+defaults:
+  # Override the main VERL PPO trainer with some abstract pg
+  - abstract_pg
+  - _self_
+
+algorithm_name: ppo
+
+
+algorithm:
+  # Use kl by default for PPO
+  use_kl_in_reward: True
+  kl_penalty: low_var_kl  # kl_low_var?
+
+  adv_estimator: "gae"  # Options: "gae", "grpo"
+
+
+actor_rollout_ref:
+  # for PPO, no KL  in the loss, as its already in the reward
+  use_kl_loss: False
+

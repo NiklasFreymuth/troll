@@ -1,0 +1,43 @@
+# @package _global_
+
+# Default DAPO dataset configuration
+# This contains all common settings shared by DAPO variants
+
+defaults:
+  - abstract_task
+  - _self_
+
+task_name: dapo
+
+custom_reward_function:
+  path: "./verl/verl/utils/reward_score/entropy_math_scorer.py"
+  name: "entropy_math_compute_score"
+
+data:
+  train_files: ${data.data_base_dir}/dapo/train/dapo_eval_aligned.parquet
+  # Multiple validation files - VERL will report metrics per data_source
+  val_files:
+    # deduplicate omni-math to avoid logging bug
+    - ${data.data_base_dir}/dapo/test/omni-math-aligned-deduplicated.parquet
+    # take other datasets with duplicates to get special eval on amie and amc
+    - ${data.data_base_dir}/dapo/test/others-aligned.parquet
+    - ${data.data_base_dir}/dapo/test/dapo_eval_aligned.parquet
+  # Default values - can be overridden by specific configs
+  max_prompt_length: 2048
+  max_response_length: 4096
+  prompt_key: prompt
+  truncation: left     # TODO: Check
+  filter_overlong_prompts: False
+  return_raw_chat: True
+# DAPO requires specific reward manager configuration
+
+reward_model:
+  reward_manager: dapo
+  # Use entropy-style mathematical scoring for better format handling
+  reward_kwargs:
+    max_resp_len: ${data.max_response_length}
+    overlong_buffer_cfg:    # off in "entropy" but on in original dapo paper?
+      enable: False
+      len: 0    # matters if off?  0 in entropy, 2k - 4k in DAPO
+      penalty_factor: 1.0   # matters if off?
+      log: False

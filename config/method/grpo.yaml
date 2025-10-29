@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  # Use the main verl PPO trainer configuration as base
+  - abstract_pg
+  - _self_
+
+# GRPO uses a KL as an additional loss term, but does not use it as part of the reward.
+# It also uses n>1 samples per rollout for the group normalization, and uses the grpo advantage estimator.
+
+algorithm_name: grpo
+
+algorithm:
+  # Use kl by default for PPO
+  use_kl_in_reward: False
+  adv_estimator: "grpo"
+  norm_adv_by_std_in_grpo: True  # false for Dr. GRPO
+
+
+actor_rollout_ref:
+  actor:
+    # for GRPO, we do use a KL loss
+    use_kl_loss: True
+    kl_loss_type: low_var_kl
