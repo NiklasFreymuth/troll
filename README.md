@@ -1,6 +1,6 @@
 # TROLL
 
-A project on Trust Region Optimization for Large Language models.
+[TROLL: Trust Regions improve Reinforcement Learning for Large Language Models](https://arxiv.org/abs/2510.03817)
 
 # Getting Started
 
