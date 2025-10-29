@@ -81,7 +81,7 @@ So you can skip this step, as the dataset is already in `./data/gsm8k`.
 Download a model. We download the models locally to avoid huggingface rate limits. We use Qwen2.5-0.5B-Instruct as it is small ("only 500m parameters") and fast
 
 ```
-python playground/download_model.py --model_type "Qwen/Qwen2.5-0.5B-Instruct"
+python download_model.py --model_type "Qwen/Qwen2.5-0.5B-Instruct"
 ```
 
 For other model types, simply change the `--model_type` argument to any model on huggingface.
