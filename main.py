@@ -20,6 +20,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 
 # Register the custom resolver before the @hydra.main decorator
 OmegaConf.register_new_resolver("mul", lambda x, y: None if x is None or y is None else int(x) * int(y))
@@ -33,6 +34,9 @@ def main(config):
     Args:
         config: Hydra configuration dictionary containing training parameters.
     """
+    import os
+    os.environ["FLASH_ATTENTION_FORCE_DISABLE"] = "1"
+    os.environ["ATTN_BACKEND"] = "eager"  # optional extra nudge for some models
 
     # Resolve interpolations in-place; cfg remains a DictConfig
     OmegaConf.resolve(config)
@@ -52,7 +56,7 @@ def main(config):
 
 
 # Define a function to run the PPO-like training process
-def run_ppo(config) -> None:
+def run_ppo(config, task_runner_class=None) -> None:
     """Initialize Ray cluster and run distributed PPO training process.
 
     Args:
@@ -66,36 +70,58 @@ def run_ppo(config) -> None:
         # Set environment variables in the runtime environment to control tokenizer parallelism,
         # NCCL debug level, VLLM logging level, and allow runtime LoRA updating
         # `num_cpus` specifies the number of CPU cores Ray can use, obtained from the configuration
-        # @Niklas: We also set `ROCR_VISIBLE_DEVICES` to an empty string to avoid GPU visibility issues.
+        # We also set `ROCR_VISIBLE_DEVICES` to an empty string to avoid GPU visibility issues.
         # This is required on the basement kluster, but not yet tested on other clusters.
-        debug = config.get("debug", None)
-        ray_runtime_env = PPO_RAY_RUNTIME_ENV.copy()  # Make a copy to avoid modifying the original
-        ray_runtime_env["env_vars"]["ROCR_VISIBLE_DEVICES"] = ""
+        default_runtime_env = get_ppo_ray_runtime_env()
+        ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
+        runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
 
+        if config.transfer_queue.enable:
+            # Add runtime environment variables for transfer queue
+            runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
+            runtime_env_vars["TRANSFER_QUEUE_ENABLE"] = "1"
+            runtime_env_kwargs["env_vars"] = runtime_env_vars
+
+        default_runtime_env["env_vars"]["ROCR_VISIBLE_DEVICES"] = ""
+        debug = config.get("debug", None)
         if debug is not None:
             # set to True to enable debugging with vscode plugin
             if debug is True:
-                ray_runtime_env["env_vars"]["RAY_DEBUG"] = "1"
+                default_runtime_env["env_vars"]["RAY_DEBUG"] = "1"
             # set to 'legecy' to enable pdb debugging
             else:
-                ray_runtime_env["env_vars"]["RAY_DEBUG"] = str(debug)
-            # ray_runtime_env["env_vars"]["RAY_DEBUG"] =
+                default_runtime_env["env_vars"]["RAY_DEBUG"] = str(debug)
         else:
-            ray_runtime_env["env_vars"]["RAY_DEBUG"] = "0"
+            default_runtime_env["env_vars"]["RAY_DEBUG"] = "0"
 
-        ray.init(
-            #           local_mode=debug, #.get("debug", False),
-            runtime_env=ray_runtime_env,
-            num_cpus=config.ray_init.num_cpus,
-        )
+
+
+        runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
+        ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
+        print(f"ray init kwargs: {ray_init_kwargs}")
+        ray.init(**OmegaConf.to_container(ray_init_kwargs))
+
+
+    if task_runner_class is None:
+        task_runner_class = ray.remote(num_cpus=1)(TaskRunner)  # please make sure main_task is not scheduled on head
 
     # Create a remote instance of the TaskRunner class, and
     # Execute the `run` method of the TaskRunner instance remotely and wait for it to complete
-    if is_cuda_available and config.trainer.get("profile_steps") is not None and len(config.trainer.get("profile_steps", [])) > 0:
-        nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+    if (
+        is_cuda_available
+        and config.global_profiler.tool == "nsys"
+        and config.global_profiler.get("steps") is not None
+        and len(config.global_profiler.get("steps", [])) > 0
+    ):
+        from verl.utils.import_utils import is_nvtx_available
+
+        assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
+        nsight_options = OmegaConf.to_container(
+            config.global_profiler.global_tool_config.nsys.controller_nsight_options
+        )
+        runner = task_runner_class.options(runtime_env={"nsight": nsight_options}).remote()
     else:
-        runner = TaskRunner.remote()
+        runner = task_runner_class.remote()
 
     try:
         ray.get(runner.run.remote(config))

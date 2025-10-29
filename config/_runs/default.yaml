@@ -23,6 +23,7 @@ performance:
   max_tokens: 12000  # Max tokens for a given micro batch
 
 actor_rollout_ref:
+
   rollout:
     # those are default
     val_kwargs:
@@ -31,6 +32,8 @@ actor_rollout_ref:
 
   # Set contribution 2 kl loss thing to False by default
   actor:
+    policy_loss:
+      loss_mode: ???  # Specify loss mode: trpl, vanilla, trpl_seq, vanilla_seq
     use_kl_loss: False
     kl_loss_coef: 0
     sparsify_logits:
@@ -41,8 +44,3 @@ algorithm:
   use_kl_in_reward: False
   kl_ctrl:
     kl_coef: 0.0
-
-actor_rollout_ref:
-  actor:
-    policy_loss:
-      loss_mode: ???  # Specify loss mode: trpl, vanilla, trpl_seq, vanilla_seq
