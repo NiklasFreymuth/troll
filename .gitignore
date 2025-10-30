@@ -106,3 +106,4 @@ outputs/*
 #*.parquet
 
 flash*.whl
+*.whl

@@ -46,6 +46,9 @@ conda list cuda
 USE_MEGATRON=0 bash verl/scripts/install_vllm_sglang_mcore.sh
 pip install --no-deps -e ./verl
 
+# Install flash attn by hand (-v because this takes forever)
+pip install -v flash-attn==2.7.4.post1
+
 # Steal (copy) a crypt.h from /usr/, as this is not covered by the conda/mamba installs.
 # This is required for verl to work, as it uses the crypt module.
 # Executing this script will also extend your CPATH when activating the troll conda environment.

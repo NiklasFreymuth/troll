@@ -433,12 +433,12 @@ class DataProto:
                     batch_dict[key] = tensor.contiguous()
 
             # Create new TensorDict with processed tensors
-            self.batch = TensorDict(batch_dict, batch_size=self.batch.batch_size, device=self.batch.device)
+            batch = TensorDict(batch_dict, batch_size=self.batch.batch_size, device=self.batch.device)
 
             # Only consolidate if there are no sparse tensors
             # consolidate() tries to apply contiguous_format to all tensors, which fails for sparse tensors
             if not has_sparse_tensors:
-                self.batch = self.batch.consolidate()
+                batch = batch.consolidate()
         else:
             batch = self.batch
 

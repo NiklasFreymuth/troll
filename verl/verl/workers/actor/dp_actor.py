@@ -20,6 +20,7 @@ Single Process Actor
 import logging
 import os
 
+import math
 import torch
 from torch import nn
 from functools import cached_property
@@ -30,6 +31,7 @@ from discrete_trpl.sparsify_logits import (
 )
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.tensor import DTensor
+from omegaconf import OmegaConf
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
@@ -63,6 +65,7 @@ class DataParallelPPOActor(BasePPOActor):
     def __init__(self, config: ActorConfig, actor_module: nn.Module, actor_optimizer: torch.optim.Optimizer = None):
         """When optimizer is None, it is Reference Policy"""
         super().__init__(config)
+
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
         role = "Ref" if actor_optimizer is None else "Actor"
@@ -89,14 +92,17 @@ class DataParallelPPOActor(BasePPOActor):
         )
         self.device_name = get_device_name()
 
-    @property
+    @cached_property
     def trpl_config(self):
-        return self.config.trpl
+        return OmegaConf.create(self.config.trpl)
+    
+    @cached_property
+    def sparsify_config(self):
+        return OmegaConf.create(self.config.sparsify_logits)
 
     @cached_property
     def trpl_layer(self):
         from discrete_trpl.dtrpl_config import DtrplOptConfig
-        from discrete_trpl.dtrpl_layer import DtrplLayer
         from discrete_trpl.sdtrpl_layer import SdtrplLayer
 
         dtrpl_config = DtrplOptConfig(**self.trpl_config.opt_config)
@@ -250,14 +256,14 @@ class DataParallelPPOActor(BasePPOActor):
                     )
 
                 if calculate_logits:
-                    if self.config.sparsify_logits.use:
+                    if self.sparsify_config.use:
                         # Optimized path: extract response tokens, normalize, and sparsify without full padding restoration
                         # full_logits = pad_input(hidden_states=logits_rmpad, indices=indices, batch=batch_size, seqlen=seqlen)
                         # logits = full_logits[:, -response_length - 1 : -1]  # (bsz, response_length, vocab_size)
                         # logits = logits.log_softmax(dim=-1)
                         # ref_sparse_logits = sparsify_normalized_logits(logits,
-                        #                                                     threshold=self.config.sparsify_logits.threshold,
-                        #    default=self.config.sparsify_logits.default
+                        #                                                     threshold=self.sparsify_config.threshold,
+                        #    default=self.sparsify_config.default
                         # )
 
                         logits, sparsify_info_dict = sparsify_and_pad_response_logits_efficient(
@@ -266,12 +272,12 @@ class DataParallelPPOActor(BasePPOActor):
                             batch_size=batch_size,
                             seqlen=seqlen,
                             response_length=response_length,
-                            selected_token_mask=input_ids_rmpad_rolled if self.config.sparsify_logits.keep_selected_token else None,
-                            threshold=self.config.sparsify_logits.threshold,
-                            default=self.config.sparsify_logits.default,
-                            total_default_mass=self.config.sparsify_logits.total_default_mass,
-                            total_default_keep_maxnum=self.config.sparsify_logits.total_default_keep_maxnum,
-                            chunk_size=self.config.sparsify_logits.chunk_size,
+                            selected_token_mask=input_ids_rmpad_rolled if self.sparsify_config.keep_selected_token else None,
+                            threshold=self.sparsify_config.threshold,
+                            default=self.sparsify_config.default,
+                            total_default_mass=self.sparsify_config.total_default_mass,
+                            total_default_keep_maxnum=self.sparsify_config.total_default_keep_maxnum,
+                            chunk_size=self.sparsify_config.chunk_size,
                         )
                         info_dict |= sparsify_info_dict
 
@@ -329,14 +335,14 @@ class DataParallelPPOActor(BasePPOActor):
 
                 if calculate_logits:
                     logits = logits.log_softmax(dim=-1)
-                    if self.config.sparsify_logits.use:
+                    if self.sparsify_config.use:
                         logits, sparsify_info_dict = sparsify_normalized_logits(
                             logits,
-                            threshold=self.config.sparsify_logits.threshold,
-                            selected_token_mask=micro_batch["responses"] if self.config.sparsify_logits.keep_selected_token else None,
-                            default=self.config.sparsify_logits.default,
-                            total_default_mass=self.config.sparsify_logits.total_default_mass,
-                            total_default_keep_maxnum=self.config.sparsify_logits.total_default_keep_maxnum,
+                            threshold=self.sparsify_config.threshold,
+                            selected_token_mask=micro_batch["responses"] if self.sparsify_config.keep_selected_token else None,
+                            default=self.sparsify_config.default,
+                            total_default_mass=self.sparsify_config.total_default_mass,
+                            total_default_keep_maxnum=self.sparsify_config.total_default_keep_maxnum,
                         )
 
                         info_dict |= sparsify_info_dict
@@ -453,7 +459,7 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
-        if "trpl" in self.loss_mode:
+        if "trpl" in self.config.policy_loss.loss_mode:
             select_keys.append("old_logits")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
@@ -508,7 +514,7 @@ class DataParallelPPOActor(BasePPOActor):
                     if entropy_coeff != 0:
                         calculate_entropy = True
 
-                    compute_logits = "trpl" in self.loss_mode
+                    compute_logits = "trpl" in self.config.policy_loss.loss_mode
                     entropy, log_prob, logits, forward_info_dict = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy, calculate_logits=compute_logits
                     )
@@ -548,19 +554,18 @@ class DataParallelPPOActor(BasePPOActor):
                             "trpl_layer": self.trpl_layer,
                             "alpha": self.trpl_config.alpha,
                             "kl_bound": self.trpl_config.kl_bound,
-                            "default_log_prob": math.log(self.config.sparsify_logits.default),
+                            "default_log_prob": math.log(self.sparsify_config.default),
                             "loss_agg_mode": loss_agg_mode,
                         }
 
                         # Call the appropriate TRPL function based on loss mode
-                        if self.loss_mode == "trpl":
+                        if self.config.policy_loss.loss_mode == "trpl":
                             pg_loss, loss_info_dict = compute_policy_loss_trpl(**common_kwargs)
-                        elif self.loss_mode == "trpl_seq":
+                        elif self.config.policy_loss.loss_mode == "trpl_seq":
                             # trpl_seq has an additional argument
-                            pg_loss, loss_info_dict = compute_policy_loss_trpl_seq(**common_kwargs
-                            )
+                            pg_loss, loss_info_dict = compute_policy_loss_trpl_seq(**common_kwargs)
                         else:
-                            raise ValueError(f"Unknown TRPL loss mode: {self.loss_mode}")
+                            raise ValueError(f"Unknown TRPL loss mode: {self.config.policy_loss.loss_mode}")
 
                         for agg_name, agg in {"min": torch.min, "mean": torch.mean, "max": torch.max}.items():
                             micro_batch_metrics.update(

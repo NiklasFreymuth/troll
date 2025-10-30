@@ -165,7 +165,7 @@ actor_rollout_ref:
     path: ${model_path}
 
     # LORA subconfig
-    lora_alpha: ~  # No lora!
+    lora_alpha: 0  # No lora!
     lora_rank: 0  # No lora!
     target_modules: ~  # No lora!
 
@@ -189,6 +189,8 @@ actor_rollout_ref:
   rollout:
     n: 8
 
+    name: vllm
+
     log_prob_micro_batch_size_per_gpu: ${performance.micro_batch_size.rollout}
     gpu_memory_utilization: ${performance.gpu_memory_utilization}
     tensor_model_parallel_size: ${performance.tensor_model_parallel_size}
@@ -200,17 +202,6 @@ actor_rollout_ref:
     # We don't do multi-turn
     multi_turn:
       enable: False
-      format: ~
-      max_user_turns: ~
-      tool_config_path: ~
-      max_parallel_calls: ~
-      completion_callback: ~
-      max_assistant_turns: ~
-      interaction_config_path: ~
-      max_tool_response_length: ~
-      tool_response_truncate_side: ~
-      use_inference_chat_template: ~
-      tokenization_sanity_check_mode: ~
 
 custom_reward_function:
   name: compute_score
