@@ -60,7 +60,7 @@ pre-commit install
 
 # Add discrete trpl dependencies
 cd dependencies
-git clone git@github.com:ALRhub/discrete_trpl.git
+git clone git@github.com:pbecker93/discrete_trpl.git
 pip install -e ./discrete_trpl
 ```
 
