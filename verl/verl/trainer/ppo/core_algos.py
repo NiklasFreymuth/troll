@@ -36,8 +36,8 @@ from verl.workers.config import ActorConfig
 
 from discrete_trpl.sdtrpl_layer import SdtrplLayer
 from discrete_trpl.sparse.gather import sparse_gather
-from discrete_trpl.sparse_helpers import sparse_mask_3d_to_2d
-from discrete_trpl.sparse_log_prob import SparseLogProb
+from discrete_trpl.sparse.helpers import sparse_mask_3d_to_2d
+from discrete_trpl.sparse.log_prob import SparseLogProb
 
 PolicyLossFn = Callable[
     [
