@@ -35,7 +35,7 @@ from verl.utils.import_utils import deprecated
 from verl.workers.config import ActorConfig
 
 from discrete_trpl.sdtrpl_layer import SdtrplLayer
-from discrete_trpl.sparse_gather import sparse_gather
+from discrete_trpl.sparse.gather import sparse_gather
 from discrete_trpl.sparse_helpers import sparse_mask_3d_to_2d
 from discrete_trpl.sparse_log_prob import SparseLogProb
 

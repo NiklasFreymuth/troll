@@ -26,7 +26,7 @@ from torch import nn
 from functools import cached_property
 from typing import Dict
 from discrete_trpl.sparsify_logits import (
-    sparsify_and_pad_response_logits_efficient,
+    sparsify_and_pad_response_logits,
     sparsify_normalized_logits,
 )
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -266,7 +266,7 @@ class DataParallelPPOActor(BasePPOActor):
                         #    default=self.sparsify_config.default
                         # )
 
-                        logits, sparsify_info_dict = sparsify_and_pad_response_logits_efficient(
+                        logits, sparsify_info_dict = sparsify_and_pad_response_logits(
                             logits_rmpad=logits_rmpad,
                             indices=indices,
                             batch_size=batch_size,
