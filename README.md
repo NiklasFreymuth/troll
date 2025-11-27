@@ -117,7 +117,7 @@ are listed in
 * `config/_runs`: Contains individual *experiments*, each of which is a separate `.yaml`. Each experiment should
   * Start with an  `# @package _global_` comment for hydra routing
     * Import a `method` and a `task`
-    * Define a `model_path`. This directs to one of the models downloaded in the `playground/download_model.py` step. E.g.,
+    * Define a `model_path`. This directs to one of the models downloaded in the `download_model.py` step. E.g.,
       `model_path: "./models/Qwen_Qwen2.5-0.5B-Instruct"` (note the `_` instead of `/`).
     * Meta information in the form of an `_idx` , a `_version` and an `exp_name`. These are purely for keeping an overview in wandb.
     * A number `n_gpus` to run this with
@@ -133,9 +133,5 @@ A recent example is
 ``` 
 python main.py +_runs/gsm8k/phase1_debug=164_7b_performance
 ```
-Which grids over ppo and grpo with different batch sizes for a 7b model (and happens to have `_idx164`, hence the name)
-If you want to submit an experiment to SLURM, you can add a `+platform=...` to the above. E.g.,
-
-```bash
-python main.py +_runs/gsm8k/phase1_debug=164_7b_performance
-```
+Which grids over different advantage estimation methods training a Qwen3-8B model.
+If you want to submit an experiment to SLURM, you can add a `+platform=...` to the above.
