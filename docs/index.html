@@ -69,7 +69,7 @@
       <div class="container is-max-desktop">
         <div class="columns is-centered">
           <div class="column has-text-centered">
-            <h1 class="title is-1 publication-title">TROLL: Trust Regions improve Reinforcement Learning for Large Language Models</h1>
+            <h1 class="title is-1 publication-title"><i>TROLL</i>: Trust Regions improve Reinforcement Learning for Large Language Models</h1>
             <div class="is-size-5 publication-authors">
               <!-- Paper authors -->
               <span class="author-block">
@@ -91,7 +91,10 @@
             <br>
               <span class="author-block"><sup>*</sup>Equal contribution. Author order was decided by a fair coin flip.</span>
             </div>
-
+            <br>
+            <div class="is-size-4">
+              <strong>Published as a Conference Paper at ICLR 2026</strong>
+            </div>
                   <div class="column has-text-centered">
                     <div class="publication-links">
                   <!-- Github link -->
@@ -149,8 +152,8 @@
         </div>
       </div>
       <h2 class="subtitle has-text-centered">
-        TROLL replaces PPO-style clipping with principled trust region projections for LLM fine-tuning. <br>
-        <b>Left:</b> TROLL makes sure the Llama stays inside its trust region. <br>
+        <i>TROLL</i> replaces PPO-style clipping with principled trust region projections for LLM fine-tuning. <br>
+        <b>Left:</b> <i>TROLL</i> makes sure the Llama stays inside its trust region. <br>
         <b>Right:</b> Example of a 3-token distribution where the old policy favors the 🧌 token, the new policy shifts toward the 🐹 token, and the trust region projection ensures stable updates.
       </h2>
     </div>
@@ -166,9 +169,9 @@
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-            On-policy Reinforcement Learning (RL) with PPO-like clip objectives has become the standard choice for reward-based fine-tuning of large language models (LLMs). Although recent work has explored improved estimators of advantages and normalization, the clipping mechanism itself has remained untouched. Originally introduced as a proxy for principled KL-based trust regions, clipping is a crude approximation that often causes unstable updates and suboptimal performance.
-            We replace the clip objective with a novel discrete differentiable trust region projection, which provides principled token-level KL constraints. The projection operates on a sparse subset of the model's most important token logits to balance computational cost and projection effectiveness. Our approach, Trust Region Optimization for Large Language Models (TROLL), serves as a direct replacement for PPO-like clipping during training and does not alter the model's inference behavior.
-            Across datasets, model families, and advantage-estimation methods, TROLL consistently outperforms PPO-like clipping in terms of training speed, stability, and final success rates.
+            Reinforcement Learning (RL) with PPO-like clip objectives has become the standard choice for reward-based fine-tuning of large language models (LLMs). Although recent work has explored improved estimators of advantages and normalization, the clipping mechanism itself has remained untouched. Originally introduced as a proxy for principled KL-based trust regions, clipping is a crude approximation that often causes unstable updates and suboptimal performance.
+            We replace the clip objective with a novel discrete differentiable trust region projection, which provides principled token-level KL constraints. The projection operates on a sparse subset of the model's most important token logits to balance computational cost and projection effectiveness. Our approach, Trust Region Optimization for Large Language Models (<i>TROLL</i>), serves as a direct replacement for PPO-like clipping during training and does not alter the model's inference behavior.
+            Across mathematical reasoning and code generation tasks, model families, as well as advantage-estimation methods, <i>TROLL</i> consistently outperforms PPO-like clipping in terms of training speed, stability, and final success rates.
           </p>
         </div>
       </div>
@@ -188,7 +191,7 @@
           <p>
             PPO and many of its variants, such as GRPO, Dr.GRPO and GSPO, rely on heuristic clipping of importance ratios to stabilize policy updates.
             Since this clipping is a crude approximation of full trust regions, it often leads to unstable training and suboptimal performance.
-            Trust Region Optimization for Large Language Models (TROLL) instead acts as a drop-in replacement for the PPO-like clip objective that uses principled trust regions via KL constraints between token distributions.
+            Trust Region Optimization for Large Language Models (<i>TROLL</i>) instead acts as a drop-in replacement for the PPO-like clip objective that uses principled trust regions via KL constraints between token distributions.
           </p>
           
           <h3 class="title is-4">The Problem with PPO Clipping</h3>
@@ -199,19 +202,11 @@
           $$J_{\text{PPO}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \min(r_t A_t, \text{clip}(r_t, 1-\epsilon_{\text{PPO}}, 1+\epsilon_{\text{PPO}}) A_t) \right].$$
         </p>
         <p>
-          This clipping makes training more stable but truncates gradients, pushes the policy to be overly cautious, and still allows arbitrarily large KL divergences, causing stability and convergence issues.
-            Standard PPO keeps policies close by clipping the importance ratio $r_t = \frac{\tilde{\pi}(o_t | q, o_{&lt;t})}{\pi^{\text{old}}(o_t | q, o_{&lt;t})}$ around 1:
-          </p>
-          <p>
-            $$J_{\text{PPO}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \min(r_t A_t, \text{clip}(r_t, 1-\epsilon_{\text{PPO}}, 1+\epsilon_{\text{PPO}}) A_t) \right]$$
-          </p>
-          <p>
-            This heuristic clipping suppresses gradients when ratios exceed the threshold, discarding valuable gradient information and leading to unstable learning.
-          </p>
+          This clipping truncates gradients, pushes the policy to be overly cautious, and still allows arbitrarily large KL divergences, causing stability and convergence issues.
 
-          <h3 class="title is-4">TROLL's Differentiable Trust Region Projection</h3>
+          <h3 class="title is-4"><i>TROLL</i>'s Differentiable Trust Region Projection</h3>
           <p>
-            TROLL projects each token's output distribution onto a KL-trust region around the old policy:
+            <i>TROLL</i> projects each token's output distribution onto a KL-trust region around the old policy:
           </p>
           <p>
             $$\arg\min_{\pi(o_t | q, o_{&lt;t})} \text{KL}(\pi(o_t | q, o_{&lt;t}) \| \tilde{\pi}(o_t | q, o_{&lt;t}))$$
@@ -228,9 +223,9 @@
             The optimal $\eta^*$ is found by solving a one-dimensional convex dual problem, which can be fully parallelized and solved with bracketing.
           </p>
 
-          <h3 class="title is-4">The TROLL Objective</h3>
+          <h3 class="title is-4">The <i>TROLL</i> Objective</h3>
           <p>
-            TROLL acts on the <b>projected policy</b> and combines its update with a regression term to this projection, i.e., 
+            <i>TROLL</i> acts on the <b>projected policy</b> and combines its update with a regression term to this projection, i.e., 
           </p>
           <p>
             $$J_{\text{TROLL}} = \mathbb{E}_{o_t \sim \pi^{\text{old}}} \left[ \frac{1}{|o|} \sum_{t=1}^{|o|} \frac{\pi(o_t | q, o_{&lt;t})}{\pi^{\text{old}}(o_t | q, o_{&lt;t})} A_t \right] - \alpha \text{KL}(\tilde{\pi}(o_t | q, o_{&lt;t}) \|  \lfloor \pi(o_t | q, o_{&lt;t})\rfloor ) $$
@@ -240,19 +235,19 @@
             Unlike clipping, it preserves gradients and mathematically ensures a fixed KL bound between the old and new policy.
           </p>
 
-          <h3 class="title is-4">Scaling TROLL with Sparsity</h3>
+          <h3 class="title is-4">Scaling <i>TROLL</i> with Sparsity</h3>
           <p>
             LLM tokenizers have vocabularies with tens of thousands of tokens, which are too expensive to directly store and project.
             However, natural language follows a power-law, where a few tokens take up most of the probability mass.
             We keep only the highest probability tokens up to either $K$ tokens or a cumulative mass of $1-\delta$. 
             With $K=64$ and $\delta=10^{-5}$, $5{-}10$ tokens typically suffice to cover $99.999\%$ of probability mass.
-            This greedy selection accurately approximates the full distribution, and makes TROLL computationally feasible for arbitrary vocabulary sizes.
+            This greedy selection accurately approximates the full distribution, and makes <i>TROLL</i> computationally feasible for arbitrary vocabulary sizes.
           </p>
 
           <div class="has-text-centered">
             <img src="static/images/troll_overview.png" alt="TROLL sparsification and trust region projection schematic" style="max-width: 100%; height: auto;"/>
             <p class="is-size-6 has-text-grey">
-              Schematic overview of TROLL. The token-wise logit distribution is sparsified for both old and new policies. The new policy's distribution is then projected onto a trust region of the old.
+              Schematic overview of <i>TROLL</i>. The token-wise logit distribution is sparsified for both old and new policies. The new policy's distribution is then projected onto a trust region of the old.
             </p>
           </div>
         </div>
@@ -271,11 +266,12 @@
       <div id="results-carousel" class="carousel results-carousel">
        <div class="item">
         <!-- Your image here -->
-        <img src="static/images/qwen3_size.png" alt="Troll and Clip with GRPO on different Qwen3 models"/>
+        <img src="static/images/qwen3_math_code.png" alt="TROLL and Clip with GRPO on different Qwen3 models for math and code benchmarks"/>
         <h2 class="subtitle has-text-centered">
-          <strong>$3{-}10\%$ absolute improvements across different Qwen3 model sizes.</strong><br>
-          <i>TROLL</i> (solid lines) consistently outperforms <i>Clip</i> (dashed lines) on Qwen3 models (600M-14B, colors) for DAPO-Math when trained with GRPO. 
-          The 4B TROLL model nearly matches the 14B clipped model's performance.
+          <strong>Vast improvements for code and math benchmarks across Qwen3 model sizes.</strong><br>
+          <i>TROLL</i> (solid lines) consistently outperforms <i>Clip</i> (dashed lines) on Qwen3 models (600M-14B, colors) for DAPO-Math and EURUS-Code when trained with GRPO. 
+          <i>TROLL</i> improves math benchmarks by $3{-}10\,\%$ percentage points compared to <i>Clip</i>.
+          On code, improvements are even more pronounced, with $7{-}18\,\%$ percentage points higher success rates. 
         </h2>
       </div>
       <div class="item">
@@ -299,9 +295,17 @@
         <!-- Your image here -->
         <img src="static/images/analysis.png" alt="Training stability and computational overhead"/>
         <h2 class="subtitle has-text-centered">
-          <strong>Better training stability with low overhead.</strong><br>
+          <strong>Higher training stability with low overhead.</strong><br>
           <i>TROLL</i> works well for a range of hyperparameters and preserves policy entropy compared to <i>Clip</i>. 
           It comes with a manageable overhead that is constant in model size.
+        </h2>
+      </div>
+      <div class="item">
+        <!-- Your image here -->
+        <img src="static/images/staleness.png" alt="Better handling of stale data"/>
+        <h2 class="subtitle has-text-centered">
+          <strong>Better handling of stale data.</strong><br>
+          <i>Clip</i> performance degrades as data becomes more stale with increased batch size, while <i>TROLL</i>'s performance stays consistent up to large batch sizes.
         </h2>
       </div>
   </div>
@@ -317,7 +321,7 @@
       <div class="column is-four-fifths">
         <h2 class="title is-3">Key Insights</h2>
         <div class="content has-text-justified">
-          <h3 class="title is-4">Why TROLL Works</h3>
+          <h3 class="title is-4">Why <i>TROLL</i> Works</h3>
           <p>
             Compared to the PPO-like <i>Clip</i>, <i>TROLL</i> provides a drop-in replacement that
             <ul>
@@ -336,12 +340,12 @@
             <strong>Sparsification:</strong> On average, $5{-}10$ tokens cover $99.999$% of probability mass. This property allows sparsification, which vastly reduces computational cost while staying close to the true token distributions.
           </p>
           <p>
-            <strong>Hyperparameters:</strong> TROLL uses the same hyperparameters for all experiments.
+            <strong>Hyperparameters:</strong> <i>TROLL</i> uses the same hyperparameters for all experiments.
             We set $K{=}64$ maximum sparse tokens, $\delta{=}1e{-}5$ for the mass threshold, $\epsilon{=}0.05$ for the KL bound, and $\alpha{=}1$ for the regression weight.
-            TROLL is robust to all its hyperparameters.
+            <i>TROLL</i> is robust to all its hyperparameters.
           </p>
           <p>
-            <strong>Computational cost:</strong> TROLL has ${\sim}5\%$ memory and ${\sim}10\%$ runtime overhead on $4$B models, with overhead decreasing relatively as models grow larger.
+            <strong>Computational cost:</strong> <i>TROLL</i> has ${\sim}5\%$ memory and ${\sim}10\%$ runtime overhead on $4$B models, with overhead decreasing relatively as models grow larger.
           </p>
         </div>
       </div>
