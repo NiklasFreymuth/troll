@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - /method: grpo  # specify below
+  - /task: eurus_code
+  - default
+  - _self_
+
+
+_idx: 140  # Eurus Code Evaluation experiments
+
+llm: Qwen_Qwen3-14B
+model_name: qwen3_14b
+performance:
+  max_tokens: 6144  # Minimum length for 1 full sequence
+  max_num_batched_tokens: 6144
+data:
+  max_prompt_length: 2048
+  max_response_length: 4096
+
+hydra:
+  mode: MULTIRUN
+  job:
+    env_set: # append to env
+      REWARD_SANDBOX_TIMEOUT: 1800 # half an hour
+  sweeper:
+    grid_params:
+      actor_rollout_ref.actor.policy_loss.loss_mode: trpl, vanilla
+    list_params:
+      model_name:
+        - qwen3_0.6b
+        - qwen3_1.7b
+        - qwen3_4b
+        - qwen3_8b
+        - qwen3_14b
+      llm:
+        - Qwen_Qwen3-0.6B
+        - Qwen_Qwen3-1.7B
+        - Qwen_Qwen3-4B
+        - Qwen_Qwen3-8B
+        - Qwen_Qwen3-14B

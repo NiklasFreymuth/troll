@@ -9,6 +9,12 @@ This is adapted from verl/verl/trainer/main_ppo.py
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"   # more precise traces on CUDA
 # torch.autograd.set_detect_anomaly(True)    # pinpoints bad backward nodes
 
+import atexit
+import os
+import signal
+import subprocess
+import sys
+
 import hydra
 import ray
 from omegaconf import DictConfig, OmegaConf
@@ -40,6 +46,34 @@ def main(config):
 
     # Resolve interpolations in-place; cfg remains a DictConfig
     OmegaConf.resolve(config)
+
+    if config.reward_model.get("sandbox_fusion") is not None and config.reward_model.sandbox_fusion.get("url") is not None:
+        # Start Sandbox
+        assert config.reward_model.sandbox_fusion.url == "http://127.0.0.1:8080/run_code"
+
+        # leave this NOT configurable from yaml to avoid weird cmd execution issues
+        cmd = [
+            "uvicorn",
+            "sandbox.server.server:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8080",
+        ]
+
+        # don't care about stdout, maybe stderr is useful to keep though
+        DEVNULL = subprocess.DEVNULL
+
+        p = subprocess.Popen(cmd, start_new_session=True, stdout=DEVNULL)
+
+        def kill_child():
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except Exception:
+                pass
+
+        atexit.register(kill_child)
+
 
     error_to_raise = None
     try:

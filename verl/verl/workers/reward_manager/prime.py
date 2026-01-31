@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Callable, Optional
 
-import psutil
 import torch
 from transformers import PreTrainedTokenizer
 
@@ -26,18 +27,21 @@ from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
 
+logger = logging.getLogger(__name__)
+
 
 async def single_compute_score(evaluation_func, completion, reference, task, task_extra_info, executor, timeout=300.0):
     loop = asyncio.get_running_loop()
     try:
         # Ensure process_completion is called properly
         future = loop.run_in_executor(executor, partial(evaluation_func, task, completion, reference, task_extra_info))
-        return await asyncio.wait_for(future, timeout=timeout)
+        res = await asyncio.wait_for(future, timeout=timeout)
+        return res
     except asyncio.TimeoutError:
-        print(f"[Timeout] Task timeout: {completion}")
+        logger.info(f"[Timeout] Task timeout: {completion}")
         return None  # Default value for timed-out rows
     except Exception as e:
-        print(f"[Error] Task failed: {e}, completion: {completion[:80]}")
+        logger.info(f"[Error] Task failed: {e}, completion: {completion[:80]}")
         return None  # Default value for failed rows
 
 
@@ -47,33 +51,23 @@ async def parallel_compute_score_async(
     if extra_info is None:
         extra_info = [None] * len(tasks)
     scores = []
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+    # read env var (falls back to 300.0)
+    _REWARD_SANDBOX_TIMEOUT = (
+        float(os.getenv("REWARD_SANDBOX_TIMEOUT")) if os.getenv("REWARD_SANDBOX_TIMEOUT") else 300.0
+    )
+    with ThreadPoolExecutor(max_workers=num_processes) as executor:
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the
         # exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
         try:
             # Create tasks for all rows
             tasks_async = [
-                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=300.0)
+                single_compute_score(evaluation_func, c, r, t, ei, executor, timeout=_REWARD_SANDBOX_TIMEOUT)
                 for c, r, t, ei in zip(completions, references, tasks, extra_info, strict=True)
             ]
             results = await asyncio.gather(*tasks_async, return_exceptions=False)
         except Exception as e:
             print(f"[Exception] async gather failed: {e}")
             raise
-        finally:
-            terminated_count = 0
-            for pid, proc in executor._processes.items():
-                try:
-                    p = psutil.Process(pid)
-                    p.terminate()
-                    try:
-                        p.wait(timeout=5)
-                    except psutil.TimeoutExpired:
-                        p.kill()
-                    terminated_count += 1
-                except Exception:
-                    pass
-            print(f"[Shutdown] {terminated_count} subprocess(es) terminated.")
 
     # Process results
     for result, completion, reference, task in zip(results, completions, references, tasks, strict=True):
@@ -95,6 +89,13 @@ def run_reward_scoring(evaluation_func, completions, references, tasks, extra_in
             parallel_compute_score_async(evaluation_func, completions, references, tasks, extra_info, num_processes)
         )
     finally:
+        # cancel everything and wait briefly before closing
+        to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for t in to_cancel:
+            print(t, t.get_name(), t.get_coro())
+            t.cancel()
+        # give tasks a chance to exit
+        loop.run_until_complete(asyncio.gather(*to_cancel, return_exceptions=True))
         loop.close()
 
 
