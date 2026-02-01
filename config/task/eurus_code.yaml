@@ -1,0 +1,36 @@
+# @package _global_
+
+# Default DAPO dataset configuration
+# This contains all common settings shared by DAPO variants
+
+defaults:
+  - abstract_task
+  - _self_
+
+task_name: eurus_code
+data:
+  train_files:
+    [
+      "${data.data_base_dir}/eurus/train_code_only_0.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_1.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_2.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_3.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_4.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_5.parquet",
+      "${data.data_base_dir}/eurus/train_code_only_6.parquet",
+    ]
+  val_files: ${data.data_base_dir}/eurus/validation_code_only_0.parquet
+
+  max_prompt_length: 4096 # base prompt 385 + task prompt: all <=5140, 99.98% (4096-385), 97.39% (2048-385), 91.97% (1024-385)
+  max_response_length: 8192
+  prompt_key: prompt
+  truncation: left # TODO: Check
+  filter_overlong_prompts: False
+  return_raw_chat: True
+# DAPO requires specific reward manager configuration
+
+reward_model:
+  sandbox_fusion:
+    url: "http://127.0.0.1:8080/run_code"
+    max_concurrent: 128
+  reward_manager: prime

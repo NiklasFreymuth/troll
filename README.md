@@ -23,18 +23,18 @@ conda install -c conda-forge mamba
 ### Installs
 
 This project uses [verl](https://verl.readthedocs.io/en/latest/) for training and evaluation of large language models.
-We set up the installs to work within conda and without sudo access for cluster compatibility. 
+We set up the installs to work within conda and without sudo access for cluster compatibility.
 We only tested this on Linux, but you probably wouldn't want to train an LLM on Windows anyway.
 
 You should be able to install all requirements using the commands below. 
-This largely follows the [verl install instructions](https://verl.readthedocs.io/en/latest/start/install.html), 
+This largely follows the [verl install instructions](https://verl.readthedocs.io/en/latest/start/install.html),
 except that we use conda/mamba instead of docker for simplicity.
 
 ```
 # Install conda env
 # This installs cuda, cudnn and apex.
 mamba env create -f ./env/env.yaml
-mamba activate troll 
+mamba activate troll
 
 # At this point, check if cuda is installed correctly.
 # You can do this by running `nvcc --version` or `nvidia-smi`. You can also do
@@ -43,11 +43,11 @@ conda list cuda
 
 # Install verl dependencies
 # We install the version without megatron, as we do not have 200 H100s
-USE_MEGATRON=0 bash verl/scripts/install_vllm_sglang_mcore.sh
+USE_MEGATRON=0 USE_SGLANG=0 bash verl/scripts/install_vllm_sglang_mcore.sh
 pip install --no-deps -e ./verl
 
 # Install flash attn by hand (-v because this takes forever)
-pip install -v flash-attn==2.7.4.post1
+pip install -v flash-attn==2.7.4.post1  --no-build-isolation
 
 # Steal (copy) a crypt.h from /usr/, as this is not covered by the conda/mamba installs.
 # This is required for verl to work, as it uses the crypt module.
@@ -62,12 +62,83 @@ pre-commit install
 cd dependencies
 git clone git@github.com:pbecker93/discrete_trpl.git
 pip install -e ./discrete_trpl
+
+
+# Add sandbox
+cd dependencies
+
+git clone --branch portable_env https://github.com/serathilg/SandboxFusion.git
+pip install -e ./SandboxFusion
+cd SandboxFusion
+mkdir -p ./docs/build
+cd ./runtime/python
+# bash install-python-runtime.sh but without the sketchy parts and with fixed 3.11 for matplotlib/contourpy
+mamba create -n sandbox-runtime -y python=3.11
+mamba activate sandbox-runtime
+pip install -r ./requirements.txt --ignore-requires-python
+python -c "import nltk; nltk.download('punkt')"
+python -c "import nltk; nltk.download('stopwords')"
+mamba deactivate
+# Make sure to copy/`ln -s` one of the examples to runtime/python/init_runtime_env or write it from scratch
+# as described in the README.md of SandboxFusion
+cp init_runtime_env_template init_runtime_env
+cd ../../../..
+
+# remember to get the Eurus dataset from hugging face, e.g.
+mkdir -p data/eurus
+wget https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data/resolve/main/train.parquet\?download=true -O data/eurus/train.parquet
+wget https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data/resolve/main/validation.parquet\?download=true -O data/eurus/validation.parquet
+python ./data_analysis/filter_eurus_code.py
+# or via our provided dataset downloads
+```
+
+
+
+### Install with uv on cuda 12.8
+```bash
+mkdir dependencies
+cd dependencies
+git clone --branch portable_env https://github.com/serathilg/SandboxFusion.git
+sed -i 's/^python = "^3.11"$/python = "^3.10"/' SandboxFusion/pyproject.toml
+sed -i 's/^pydantic = ">=2.4.0,<2.7.0"$/pydantic = ">=2.4.0"/' SandboxFusion/pyproject.toml
+sed -i 's/^fastapi = "^0.103.1"$/fastapi = "^0.115.0"/' SandboxFusion/pyproject.toml
+cd ..
+
+uv sync
+
+cd dependencies/SandboxFusion
+mamba create -n sandbox -y python=3.12
+mamba activate sandbox
+mkdir -p ./docs/build
+pip install -e .
+mamba deactivate
+
+cd ./runtime/python
+# bash install-python-runtime.sh but without the sketchy parts and with fixed 3.11 for matplotlib/contourpy
+mamba create -n sandbox-runtime -y python=3.11
+mamba activate sandbox-runtime
+pip install -r ./requirements.txt --ignore-requires-python
+python -c "import nltk; nltk.download('punkt')"
+python -c "import nltk; nltk.download('stopwords')"
+mamba deactivate
+# Make sure to copy/`ln -s` one of the examples to runtime/python/init_runtime_env or write it from scratch
+# as described in the README.md of SandboxFusion
+cp init_runtime_env_template init_runtime_env
+cd ../../../..
+# uv pip install -e ./dependencies/SandboxFusion # must be editable install to find the docs/build dir
+
+# remember to get the Eurus dataset from hugging face, e.g.
+mkdir -p data/eurus
+wget https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data/resolve/main/train.parquet\?download=true -O data/eurus/train.parquet
+wget https://huggingface.co/datasets/PRIME-RL/Eurus-2-RL-Data/resolve/main/validation.parquet\?download=true -O data/eurus/validation.parquet
+uv run ./data_analysis/filter_eurus_code.py
+# Continue by replacing `python ...` commands with `uv run ...`.
 ```
 
 
 ### Minimum example
 
-We follow the [verl quickstart PPO example](https://verl.readthedocs.io/en/latest/start/quickstart.html) as our starting point. 
+We follow the [verl quickstart PPO example](https://verl.readthedocs.io/en/latest/start/quickstart.html) as our starting point.
 This requires a GPU with at least 24GB of memory, i.e., at least a 3090.
 The following commands will download a model and run the example from our custom config.
 Make sure you are in the `troll` directory before running these commands.
@@ -104,12 +175,12 @@ python main.py +_runs=debug n_gpus=$N_GPUS
 
 ### Configs
 
-The folder `config` contains the hydra configuration files for the project. 
+The folder `config` contains the hydra configuration files for the project.
 We still inherit from the verl base config, but tried to expose all potentially relevant parameters. These parameters
 are listed in
-* `config/performance`: Anything performance-related that does *not* change the actual algorithm behavior. 
+* `config/performance`: Anything performance-related that does *not* change the actual algorithm behavior.
   E.g., Micro batch sizes, which fsdp to use, offloading behavior etc.
-* `config/method`: Specifies the actual algorithm to run (independent of a model or dataset). The default here is 
+* `config/method`: Specifies the actual algorithm to run (independent of a model or dataset). The default here is
   `abstract_pg`, which sets sane defaults for any policy gradient method. PPO, GRPO, Dr.GRPO and GSPO all inherit from this.
 *  `config/task`: Specifies the actual task to run. This is mainly the dataset, but also details on how many epochs to run for,
   how often to evaluate, etc.
@@ -130,7 +201,7 @@ This will sequentially run any number of runs within the experiment, as defined 
 
 A recent example is
 
-``` 
+```bash
 python main.py +_runs/gsm8k/phase1_debug=164_7b_performance
 ```
 Which grids over different advantage estimation methods training a Qwen3-8B model.
